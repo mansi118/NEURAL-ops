@@ -5,6 +5,7 @@ role_family: meta
 model: { planner: stub, executor: stub, verifier: stub }
 limits: { max_replans: 1 }
 memory: { read: true, write: true }
+twin: { read: true }
 tools: [ground_tool]
 acp: { publishes: [cortex_answer] }
 ---

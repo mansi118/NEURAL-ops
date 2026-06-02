@@ -4,7 +4,8 @@ version: 1
 role_family: meta
 model: { planner: stub, executor: stub, verifier: stub }
 limits: { max_replans: 1 }
-twin: { write: true }
+memory: { read: true, write: false }
+twin: { read: true, write: true }      # twin-lifecycle NEop: seeds the twin
 tools: [draft_twin]
 acp: { publishes: [twin] }
 ---

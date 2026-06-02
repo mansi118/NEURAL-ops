@@ -4,6 +4,7 @@ version: 1
 role_family: reactive
 model: { executor: stub, verifier: stub }
 limits: { max_replans: 0 }
+memory: { read: true, write: false }
 twin: { read: true }
 shadow: true
 tools: [predict_tool]

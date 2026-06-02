@@ -9,7 +9,42 @@ mode decides recorded vs live.
 from __future__ import annotations
 import os, json, pathlib
 
-__all__ = ["ClassifierError", "live_classifier", "catalog_from_agents"]
+__all__ = ["ClassifierError", "live_classifier", "bedrock_classifier", "catalog_from_agents"]
+
+BEDROCK_HAIKU = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+
+def _classify_prompt(catalog, text):
+    agents = "\n".join(f"- {k}: {v}" for k, v in catalog.items())
+    return (
+        "You route a user's chat message to exactly one agent. Agents:\n"
+        f"{agents}\n\n"
+        f"Message: {text!r}\n\n"
+        'Respond with ONLY a JSON object: {"neop": "<agent_id>", "confidence": <0..1>}'
+    )
+
+
+def _parse(raw):
+    try:
+        data = json.loads(raw[raw.find("{"): raw.rfind("}") + 1])
+        return str(data["neop"]), float(data["confidence"])
+    except (ValueError, KeyError) as e:
+        raise ClassifierError(f"unparseable classifier response: {raw!r}") from e
+
+
+def bedrock_classifier(catalog, model_id=BEDROCK_HAIKU, region="ap-south-1"):
+    """fn(text) -> (neop, confidence) via a Haiku-class model on AWS Bedrock (Converse API).
+    Uses the standard AWS credential chain — no separate key. Lazy boto3."""
+    def fn(text):
+        import boto3  # lazy
+        br = boto3.client("bedrock-runtime", region_name=region)
+        resp = br.converse(
+            modelId=model_id,
+            messages=[{"role": "user", "content": [{"text": _classify_prompt(catalog, text)}]}],
+            inferenceConfig={"maxTokens": 120, "temperature": 0},
+        )
+        return _parse(resp["output"]["message"]["content"][0]["text"])
+    return fn
 
 
 class ClassifierError(RuntimeError):

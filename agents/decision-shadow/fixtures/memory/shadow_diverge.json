@@ -1,0 +1,8 @@
+{
+  "chunks": [
+    { "id": "m1", "tenant": "neuraledge", "text": "Standing policy: approve low-risk, reversible retainers; escalate anything touching prod.", "score": 0.78, "category": "lesson", "source_adapter": "mcp", "confidence": 0.7 }
+  ],
+  "provenance": [
+    { "id": "m1", "source_adapter": "mcp", "source_ref": "policy-3", "author_type": "neop", "author_id": "aria", "created_at": 1700000000 }
+  ]
+}

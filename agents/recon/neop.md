@@ -4,6 +4,8 @@ version: 1
 role_family: sales
 model: { planner: stub, executor: stub, verifier: stub }
 limits: { max_replans: 2, phase_timeout_s: { plan: 10, execute: 20, verify: 10 } }
+memory: { read: true, write: false }   # grounded by default; recon doesn't persist
+twin: { read: true }                   # runs in the seat's own context
 tools: [search_leads, enrich_lead, dedupe]
 acp: { publishes: [recon_leads] }
 ---

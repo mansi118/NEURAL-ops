@@ -1,0 +1,8 @@
+{
+  "chunks": [
+    { "id": "m1", "tenant": "neuraledge", "text": "NeuralEDGE targets fintech and AI-native startups in APAC; prioritize seed/Series-A.", "score": 0.71, "category": "fact", "source_adapter": "mcp", "confidence": 0.6 }
+  ],
+  "provenance": [
+    { "id": "m1", "source_adapter": "mcp", "source_ref": "icp-1", "author_type": "human", "author_id": "ml", "created_at": 1700000000 }
+  ]
+}
