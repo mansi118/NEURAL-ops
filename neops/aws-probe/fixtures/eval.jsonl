@@ -1,0 +1,1 @@
+{"case_id": "aws_whoami", "input": {"text": ""}, "expect": {"terminal_state": "DONE", "expected_phases": ["execute"], "golden_plan": "golden_plan.json", "must_call_tools": ["sts_whoami"], "must_not_call_tools": ["s3_list_buckets", "dynamodb_list_tables"], "max_replans": 0}}

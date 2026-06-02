@@ -26,6 +26,7 @@ host; a Pi-agent = a running NEop session; planner/executor/verifier = Pi-subage
 
 ```
 runtime/core.py        Phase/State machine, diagnostics loader, brokers, PiAgent, dispatch()
+runtime/aws.py         Read-only boto3 tool registry (live integration-mode AWS tools)
 tools/nrt.py           NEOS Runtime Tester (validate | test | trace | suite | golden)
 neops/<id>/
   neop.md              Frontmatter (neop_id, version, limits, role_family, tools, model, acp) + role prose
@@ -43,6 +44,17 @@ neops/<id>/
 
 - **echo** (`role_family: meta`) — hello-world; full plan→execute→verify.
 - **ping** (`role_family: executor`) — pure executor; `[execute]` only, no model calls.
+- **aws-probe** (`role_family: executor`) — read-only AWS; calls `sts_whoami`, publishes caller identity.
+
+## AWS
+
+AWS is wired into the **tool layer**, following the same mock-vs-live discipline as
+models. `runtime/aws.py` is a lazy, credential-gated, **read-only** boto3 registry
+(`sts_whoami`, `s3_list_buckets`, `dynamodb_list_tables`); profile/region come from
+the standard AWS env. A NEop declares the AWS tools it needs in `tools.json`
+(allowlist), tests them deterministically with `fixtures/mocks`, and — in
+integration mode — the ToolBroker resolves them through `runtime.aws.run(name, args)`.
+No mutating AWS tools ship without an explicit, reviewed addition.
 
 ## Run
 
