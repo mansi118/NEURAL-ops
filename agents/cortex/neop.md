@@ -1,14 +1,14 @@
 ---
-neop_id: recall
+neop_id: cortex
 version: 1
 role_family: meta
 model: { planner: stub, executor: stub, verifier: stub }
 limits: { max_replans: 1 }
 memory: { read: true, write: true }
 tools: [ground_tool]
-acp: { publishes: [recall_answer] }
+acp: { publishes: [cortex_answer] }
 ---
-# Recall NEop
+# Cortex NEop
 First memory-aware NEop. Retrieves the seat's relevant memory in `assemble`, grounds
 its answer in the retrieved chunks (a tool call), and writes a provenance-stamped
 memory back on `run_end` (which also fires the STM→LTM consolidate hook). Exercises

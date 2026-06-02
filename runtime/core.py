@@ -229,14 +229,25 @@ class MemoryBroker:
         raise RuntimeError(f"memory mode '{self.mode}' not supported")
 
     def write(self, tenant, seat, record):
-        prov = {"source_adapter": "neos-runtime",
-                "source_external_id": f"{tenant}:{seat}:{len(self.writes)}",
+        adapter = "neos-runtime"
+        # dedup key is content-derived -> identical writes are idempotent (MemPalace
+        # dedups on sha256(sourceAdapter + sourceExternalId); we mirror that here).
+        content_sig = hashlib.sha256(json.dumps(
+            {"tenant": tenant, "seat": seat, "content": record.get("content"),
+             "cites": record.get("cites"), "category": record.get("category")},
+            sort_keys=True).encode()).hexdigest()[:16]
+        source_external_id = f"{tenant}:{seat}:{content_sig}"
+        dedup_key = hashlib.sha256(f"{adapter}:{source_external_id}".encode()).hexdigest()[:16]
+        prov = {"source_adapter": adapter, "source_external_id": source_external_id,
                 "author_type": "neop", "author_id": seat}
-        stamped = {**record, "tenant": tenant, "seat": seat, "provenance": prov}
+        stamped = {**record, "tenant": tenant, "seat": seat, "dedup_key": dedup_key, "provenance": prov}
         if self.mode == "unit":
+            existing = next((w for w in self.writes if w["dedup_key"] == dedup_key), None)
+            if existing:  # idempotent: no duplicate stored
+                return {"status": "noop", "closet_id": existing["closet_id"], "dedup_key": dedup_key}
+            stamped["closet_id"] = f"unit-{len(self.writes) + 1}"
             self.writes.append(stamped)
-            return {"status": "ok", "closet_id": f"unit-{len(self.writes)}",
-                    "dedup_key": prov["source_external_id"]}
+            return {"status": "ok", "closet_id": stamped["closet_id"], "dedup_key": dedup_key}
         if self.mode == "integration":
             return self._live().write(tenant, seat, stamped)
         raise RuntimeError(f"memory mode '{self.mode}' not supported")
