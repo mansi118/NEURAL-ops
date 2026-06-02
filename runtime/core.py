@@ -1,11 +1,17 @@
-"""NEOS runtime core (reference / test-mode).
+"""NEOS runtime core (reference / test-mode) — v2, Pi-informed.
 
-Loads a NEop folder, instantiates it as a Pi-agent, runs plan -> execute -> verify.
-Production Hermes (Node) implements the SAME contract; this Python core is the
-executable spec and the permanent test runtime behind `nrt`.
+Loads a NEop folder, instantiates it as a Pi-agent, runs a phase set that is a
+FUNCTION OF role_family, and emits a typed event stream. Production Hermes (Node)
+implements the same contract; this Python core is the executable spec + the
+permanent test runtime behind `nrt`.
 
-Naming: Hermes = host. Pi-agent = a running NEop session. planner/executor/verifier
-= Pi-subagents. A "NEop run" is a Pi-agent session.
+Three things adopted from Pi (pi-agent-core), each justified by nrt/ACP, not by
+the model needing rails:
+  1. Diagnostics-as-data in the loader (collect, don't throw-on-first).
+  2. A typed phase-event stream (one stream powers trace + assertions + future UI).
+  3. Runtime tool-allowlist enforcement (contract enforced in prod, not just CI).
+And the core structural fix the critique demanded:
+  4. Phase set per role_family — a pure executor does NOT pay the plan+verify tax.
 """
 from __future__ import annotations
 import enum, json, time, hashlib, pathlib
@@ -16,7 +22,25 @@ except ImportError:  # pragma: no cover
     raise SystemExit("pip install pyyaml")
 
 
-# ----------------------------------------------------------------------------- state machine
+# ============================================================ phases & states
+class Phase(str, enum.Enum):
+    PLAN = "plan"
+    EXECUTE = "execute"
+    VERIFY = "verify"
+
+
+# role_family -> ordered phase set. THIS is the "don't make every agent pay for
+# features only some need" fix. A pure executor skips plan+verify entirely.
+PHASE_SETS = {
+    "meta":     [Phase.PLAN, Phase.EXECUTE, Phase.VERIFY],
+    "sales":    [Phase.PLAN, Phase.EXECUTE, Phase.VERIFY],
+    "research": [Phase.PLAN, Phase.EXECUTE, Phase.VERIFY],
+    "executor": [Phase.EXECUTE],                       # no plan, no verify tax
+    "reactive": [Phase.EXECUTE, Phase.VERIFY],         # verify but no upfront plan
+}
+DEFAULT_PHASE_SET = [Phase.PLAN, Phase.EXECUTE, Phase.VERIFY]
+
+
 class State(str, enum.Enum):
     LOADING = "LOADING"
     REJECTED = "REJECTED"
@@ -34,223 +58,260 @@ class State(str, enum.Enum):
 TERMINAL = {State.DONE, State.FAILED, State.ESCALATED, State.REJECTED}
 
 
-# ----------------------------------------------------------------------------- loader
+# ============================================================ typed event stream (steal #2)
+# One typed union, emitted by the run, consumed by nrt trace / assertions / future UI.
+EVENT_TYPES = {
+    "run_start", "assemble", "plan_start", "plan_end",
+    "tool_call", "tool_result", "tool_blocked",
+    "verify_start", "verify_end", "replan", "escalate", "run_end",
+}
+
+
+def event(kind, t0, **fields):
+    assert kind in EVENT_TYPES, f"unknown event '{kind}'"
+    return {"event": kind, "t_ms": round((time.time() - t0) * 1000), **fields}
+
+
+# ============================================================ loader (steal #1: diagnostics-as-data)
 REQUIRED_FRONTMATTER = ["neop_id", "version", "limits"]
 
 
-class LoadError(Exception):
-    pass
-
-
-def _split_frontmatter(text: str):
+def _split_frontmatter(text):
     if not text.startswith("---"):
-        raise LoadError("missing frontmatter fence '---'")
+        return None, "missing frontmatter fence '---'"
     parts = text.split("---", 2)
     if len(parts) < 3:
-        raise LoadError("malformed frontmatter")
-    return yaml.safe_load(parts[1]) or {}, parts[2].strip()
+        return None, "malformed frontmatter"
+    try:
+        return (yaml.safe_load(parts[1]) or {}), None
+    except yaml.YAMLError as e:
+        return None, f"yaml parse error: {e}"
 
 
-def load_neop(folder) -> dict:
-    """Resolve + validate a NEop folder. Fails LOUD on any defect (NR-2)."""
+def load_neop(folder):
+    """Return (defn_or_None, diagnostics[]). Collects ALL defects; never throws on first.
+    diagnostic = {severity: error|warning, code, msg}."""
     folder = pathlib.Path(folder)
+    diags = []
+
+    def err(code, msg): diags.append({"severity": "error", "code": code, "msg": msg})
+    def warn(code, msg): diags.append({"severity": "warning", "code": code, "msg": msg})
+
     neop_md = folder / "neop.md"
     if not neop_md.exists():
-        raise LoadError(f"no neop.md in {folder}")
-    fm, body = _split_frontmatter(neop_md.read_text())
+        err("missing_neop_md", f"no neop.md in {folder}")
+        return None, diags
+
+    fm, perr = _split_frontmatter(neop_md.read_text())
+    if perr:
+        err("parse_failed", perr)
+        return None, diags
+
     for k in REQUIRED_FRONTMATTER:
         if k not in fm:
-            raise LoadError(f"frontmatter missing required key '{k}'")
+            err("invalid_metadata", f"frontmatter missing required key '{k}'")
+
     tools = []
-    if (folder / "tools.json").exists():
-        tools = json.loads((folder / "tools.json").read_text())
-    declared = fm.get("tools", [])
-    if not set(declared) <= set(tools):
-        raise LoadError(f"frontmatter tools {declared} not a subset of tools.json {tools}")
+    tj = folder / "tools.json"
+    if tj.exists():
+        try:
+            tools = json.loads(tj.read_text())
+        except json.JSONDecodeError as e:
+            err("parse_failed", f"tools.json: {e}")
+
+    declared = fm.get("tools", []) if isinstance(fm, dict) else []
+    for t in declared:
+        if t not in tools:
+            err("unknown_tool", f"frontmatter tool '{t}' not in tools.json {tools}")
+
+    rf = fm.get("role_family") if isinstance(fm, dict) else None
+    if rf and rf not in PHASE_SETS:
+        warn("unknown_role_family", f"role_family '{rf}' has no phase set; using default")
+
+    # missing optional subagent files for phases this role will run -> warnings
+    phases = PHASE_SETS.get(rf, DEFAULT_PHASE_SET)
+    if Phase.PLAN in phases and not (folder / "planner.md").exists():
+        warn("missing_subagent", "planner.md absent but role runs PLAN")
+    if Phase.VERIFY in phases and not (folder / "verifier.md").exists():
+        warn("missing_subagent", "verifier.md absent but role runs VERIFY")
+
+    if any(d["severity"] == "error" for d in diags):
+        return None, diags
 
     def read(name):
         p = folder / name
         return p.read_text() if p.exists() else ""
 
-    return {
-        "id": fm["neop_id"],
-        "version": fm["version"],
-        "frontmatter": fm,
-        "role": body,
-        "planner": read("planner.md"),
-        "executor": read("executor.md"),
-        "verifier": read("verifier.md"),
-        "tools": tools,
-        "folder": folder,
+    defn = {
+        "id": fm["neop_id"], "version": fm["version"], "frontmatter": fm,
+        "role_family": rf, "phases": phases,
+        "role": _split_frontmatter(neop_md.read_text())[0] and neop_md.read_text().split("---", 2)[2].strip(),
+        "planner": read("planner.md"), "executor": read("executor.md"),
+        "verifier": read("verifier.md"), "tools": tools, "folder": folder,
     }
+    return defn, diags
 
 
-# ----------------------------------------------------------------------------- brokers
-def cassette_key(phase: str, prompt: str) -> str:
-    """LOCKED recorded-stub key: <phase>:<sha256(prompt)[:16]>."""
+# ============================================================ brokers
+def cassette_key(phase, prompt):
     return f"{phase}:{hashlib.sha256(prompt.encode()).hexdigest()[:16]}"
 
 
 class ModelBroker:
-    """Routes a subagent call. unit mode = deterministic cassette lookup."""
+    def __init__(self, mode, cassette=None):
+        self.mode, self.cassette = mode, (cassette or {})
 
-    def __init__(self, mode: str, cassette: dict | None = None):
-        self.mode = mode
-        self.cassette = cassette or {}
-
-    def call(self, phase: str, prompt: str):
+    def call(self, phase, prompt):
         if self.mode != "unit":
-            raise RuntimeError(f"mode '{self.mode}' not wired in the step-1 reference (unit only)")
+            raise RuntimeError(f"mode '{self.mode}' not wired in step-1 reference (unit only)")
         key = cassette_key(phase, prompt)
         if key in self.cassette:
             return self.cassette[key]
-        # bootstrap tolerance: exactly one recorded entry for this phase
         cands = [v for k, v in self.cassette.items() if k.startswith(phase + ":")]
         if len(cands) == 1:
             return cands[0]
-        raise RuntimeError(f"cassette miss for {key} — run `nrt golden --record` to capture it")
+        raise RuntimeError(f"cassette miss for {key} — run `nrt golden --record`")
 
 
 class ToolBroker:
-    """Enforces the tools.json allowlist; serves mocks in unit/integration mode."""
-
-    def __init__(self, mode: str, mocks: dict, allowlist):
-        self.mode = mode
-        self.mocks = mocks
+    """steal #3: allowlist enforced AT RUNTIME. Unknown tool -> blocked result the
+    agent could self-correct on, AND a tool_blocked event. Not merely a CI assertion."""
+    def __init__(self, mode, mocks, allowlist):
+        self.mode, self.mocks = mode, mocks
         self.allowlist = set(allowlist)
-        self.calls = []  # list of {"tool":, "allowed":}
+        self.calls = []  # [{tool, allowed}]
 
-    def invoke(self, tool: str, args: dict):
+    def invoke(self, tool, args):
         allowed = tool in self.allowlist
         self.calls.append({"tool": tool, "allowed": allowed})
         if not allowed:
-            raise PermissionError(f"tool '{tool}' not in allowlist {sorted(self.allowlist)}")
+            return {"_blocked": True, "reason": f"tool '{tool}' not in allowlist {sorted(self.allowlist)}"}
         if self.mode not in ("unit", "integration"):
-            raise RuntimeError("live tools not wired in the step-1 reference")
+            raise RuntimeError("live tools not wired in step-1 reference")
         if tool not in self.mocks:
-            raise RuntimeError(f"no mock for tool '{tool}' (add to fixtures/mocks)")
+            raise RuntimeError(f"no mock for tool '{tool}'")
         m = self.mocks[tool]
-        if isinstance(m, dict) and "$reflect_field" in m:  # echo a field of the input
+        if isinstance(m, dict) and "$reflect_field" in m:
             f = m["$reflect_field"]
             return {f: args.get(f)}
         return m
 
 
 class MemoryBroker:
-    """unit mode = fixture STM + no-op write sink (no external deps)."""
-
-    def __init__(self, stm: list):
-        self.stm = stm
-        self.writes = []
-
-    def retrieve(self, *_a, **_k):
-        return {"chunks": [], "provenance": []}
-
-    def write(self, rec):
-        self.writes.append(rec)
+    def __init__(self, stm): self.stm, self.writes = stm, []
+    def retrieve(self, *_a, **_k): return {"chunks": [], "provenance": []}
+    def write(self, rec): self.writes.append(rec)
 
 
-# ----------------------------------------------------------------------------- Pi-agent
+# ============================================================ Pi-agent
 class PiAgent:
-    """A running NEop session. Owns the plan -> execute -> verify loop."""
-
-    def __init__(self, defn: dict, model: ModelBroker, tools: ToolBroker, memory: MemoryBroker):
-        self.defn = defn
-        self.model = model
-        self.tools = tools
-        self.mem = memory
+    def __init__(self, defn, model, tools, memory):
+        self.defn, self.model, self.tools, self.mem = defn, model, tools, memory
+        self.phases = defn["phases"]
         self.state = State.LOADING
-        self.trace = []
+        self.events = []
         self.replans = 0
         self.max_replans = defn["frontmatter"]["limits"].get("max_replans", 2)
         self.plan = None
         self.outputs = {}
         self.t0 = time.time()
 
-    def _emit(self, phase, **kw):
-        self.trace.append({"phase": phase, "t_ms": round((time.time() - self.t0) * 1000), **kw})
+    def _e(self, kind, **f): self.events.append(event(kind, self.t0, **f))
 
-    def run(self, msg: dict) -> dict:
+    def run(self, msg):
+        self._e("run_start", neop=self.defn["id"], role_family=self.defn["role_family"],
+                 phases=[p.value for p in self.phases])
         self.state = State.ASSEMBLING
-        bundle = self.mem.retrieve(msg)
-        self._emit("assemble", stm=len(self.mem.stm), bundle=len(bundle["chunks"]))
+        self.mem.retrieve(msg)
+        self._e("assemble", stm=len(self.mem.stm))
 
-        self.plan = self._plan(msg)
+        # PLAN (only if role runs it) — else synthesize a one-task implicit plan
+        if Phase.PLAN in self.phases:
+            self.plan = self._plan(msg)
+        else:
+            self.plan = self._implicit_plan(msg)
+
         while True:
-            ok = self._execute_and_verify(self.plan, msg)
+            ok = self._execute_and_maybe_verify(self.plan, msg)
             if ok:
                 self.state = State.DONE
                 break
             if self.state == State.FAILED:
                 break
+            # replan only meaningful if this role plans
+            if Phase.PLAN not in self.phases:
+                self.state = State.FAILED
+                break
             self.replans += 1
             if self.replans > self.max_replans:
                 self.state = State.ESCALATED
-                self._emit("escalate", replans=self.replans)
+                self._e("escalate", replans=self.replans)
                 break
+            self._e("replan", n=self.replans)
             self.state = State.REPLANNING
-            self._emit("replan", n=self.replans)
             self.plan = self._plan(msg)
+
+        self._e("run_end", state=self.state.value, replans=self.replans)
         return self._result()
 
     def _plan(self, msg):
         self.state = State.PLANNING
+        self._e("plan_start")
         prompt = self.defn["planner"] + "\nINPUT:" + json.dumps(msg, sort_keys=True)
         plan = self.model.call("plan", prompt)
-        self._emit("plan", tasks=[t["task_id"] for t in plan["tasks"]])
+        self._e("plan_end", tasks=[t["task_id"] for t in plan["tasks"]])
         return plan
 
-    def _execute_and_verify(self, plan, msg):
+    def _implicit_plan(self, msg):
+        # executor-family: no planner model call, no plan artifact tax.
+        tool = (self.defn["frontmatter"].get("tools") or [None])[0]
+        return {"plan_version": "v1", "plan_id": "implicit", "neop": self.defn["id"],
+                "tasks": [{"task_id": "t1", "description": "direct execute",
+                           "depends_on": [], "tool": tool, "acceptance": "tool returns",
+                           "scope": "tool"}], "max_replans": 0, "_implicit": True}
+
+    def _execute_and_maybe_verify(self, plan, msg):
         self.outputs = {}
-        for task in plan["tasks"]:  # step-1: linear walk; DAG topo-order is the next increment
+        for task in plan["tasks"]:
             self.state = State.EXECUTING
             tool = task.get("tool")
             if tool:
-                # side-effecting -> approval gate; auto-grant in test mode
-                self.state = State.AWAITING_APPROVAL
-                self.state = State.EXECUTING
-                args = {"text": msg.get("text")}
-                try:
-                    out = self.tools.invoke(tool, args)
-                except PermissionError as e:
-                    self._emit("execute", task=task["task_id"], denied=str(e))
+                self._e("tool_call", task=task["task_id"], tool=tool)
+                out = self.tools.invoke(tool, {"text": msg.get("text")})
+                if isinstance(out, dict) and out.get("_blocked"):
+                    self._e("tool_blocked", task=task["task_id"], tool=tool, reason=out["reason"])
                     self.state = State.FAILED
                     return False
                 self.outputs[task["task_id"]] = out
-                self._emit("execute", task=task["task_id"], tool=tool, out=out)
-            self.state = State.VERIFYING
-            vprompt = (self.defn["verifier"] + "\nTASK:" + json.dumps(task, sort_keys=True)
-                       + "\nOUT:" + json.dumps(self.outputs.get(task["task_id"]), sort_keys=True)
-                       + "\nINPUT:" + json.dumps(msg, sort_keys=True))
-            verdict = self.model.call("verify", vprompt)
-            self._emit("verify", task=task["task_id"], verdict=verdict)
-            if not verdict.get("pass"):
-                return False
+                self._e("tool_result", task=task["task_id"], tool=tool, out=out)
+
+            if Phase.VERIFY in self.phases:
+                self.state = State.VERIFYING
+                self._e("verify_start", task=task["task_id"])
+                vprompt = (self.defn["verifier"] + "\nTASK:" + json.dumps(task, sort_keys=True)
+                           + "\nOUT:" + json.dumps(self.outputs.get(task["task_id"]), sort_keys=True)
+                           + "\nINPUT:" + json.dumps(msg, sort_keys=True))
+                verdict = self.model.call("verify", vprompt)
+                self._e("verify_end", task=task["task_id"], verdict=verdict)
+                if not verdict.get("pass"):
+                    return False
         return True
 
     def _result(self):
-        return {
-            "state": self.state.value,
-            "plan": self.plan,
-            "outputs": self.outputs,
-            "tool_calls": self.tools.calls,
-            "replans": self.replans,
-            "trace": self.trace,
-            "total_ms": round((time.time() - self.t0) * 1000),
-        }
+        return {"state": self.state.value, "plan": self.plan, "outputs": self.outputs,
+                "tool_calls": self.tools.calls, "replans": self.replans,
+                "phases": [p.value for p in self.phases], "events": self.events,
+                "total_ms": round((time.time() - self.t0) * 1000)}
 
 
-# ----------------------------------------------------------------------------- dispatch
-def dispatch(folder, msg: dict, mode: str, cassette: dict, mocks: dict, stm: list) -> dict:
-    """Runtime API entrypoint: load -> instantiate Pi-agent -> run."""
-    try:
-        defn = load_neop(folder)
-    except LoadError as e:
-        return {"state": State.REJECTED.value, "error": str(e), "trace": [], "tool_calls": []}
-    agent = PiAgent(
-        defn,
-        ModelBroker(mode, cassette),
-        ToolBroker(mode, mocks, defn["tools"]),
-        MemoryBroker(stm),
-    )
-    return agent.run(msg)
+# ============================================================ dispatch
+def dispatch(folder, msg, mode, cassette, mocks, stm):
+    defn, diags = load_neop(folder)
+    if defn is None:
+        return {"state": State.REJECTED.value, "diagnostics": diags,
+                "events": [], "tool_calls": []}
+    agent = PiAgent(defn, ModelBroker(mode, cassette),
+                    ToolBroker(mode, mocks, defn["tools"]), MemoryBroker(stm))
+    res = agent.run(msg)
+    res["diagnostics"] = diags  # warnings surface even on success
+    return res

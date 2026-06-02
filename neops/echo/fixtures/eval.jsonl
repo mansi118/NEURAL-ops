@@ -1,1 +1,1 @@
-{"case_id": "echo_hello", "input": {"text": "hello world"}, "expect": {"terminal_state": "DONE", "golden_plan": "golden_plan.json", "must_call_tools": ["echo_tool"], "must_not_call_tools": [], "max_replans": 0}}
+{"case_id": "echo_hello", "input": {"text": "hello world"}, "expect": {"terminal_state": "DONE", "expected_phases": ["plan", "execute", "verify"], "golden_plan": "golden_plan.json", "must_call_tools": ["echo_tool"], "must_not_call_tools": [], "max_replans": 0}}

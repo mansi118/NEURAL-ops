@@ -1,0 +1,1 @@
+{"case_id": "ping_basic", "input": {"text": "ping"}, "expect": {"terminal_state": "DONE", "expected_phases": ["execute"], "golden_plan": "golden_plan.json", "must_call_tools": ["ping_tool"], "max_replans": 0}}

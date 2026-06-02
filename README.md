@@ -1,49 +1,69 @@
 # NEOS
 
-An ecosystem of **NEops** — Pi-style agents that run a typed runtime contract:
+An ecosystem of **NEops** — Pi-style agents that run a typed runtime contract.
+The phase set is a **function of `role_family`**, not fixed:
 
 ```
-load → assemble → plan → execute → verify → DONE
+meta / sales / research : plan → execute → verify
+reactive                : execute → verify
+executor                : execute            (no plan, no verify tax)
 ```
 
-`runtime/core.py` is the **executable spec** and the permanent test runtime behind `nrt`.
-Production **Hermes** (Node) implements the same contract. Naming: Hermes = host;
-a Pi-agent = a running NEop session; planner/executor/verifier = Pi-subagents.
+`runtime/core.py` is the **executable spec** and the permanent test runtime behind
+`nrt`. Production **Hermes** (Node) implements the same contract. Naming: Hermes =
+host; a Pi-agent = a running NEop session; planner/executor/verifier = Pi-subagents.
+
+### Pi-informed design (each earns its keep via `nrt`/ACP, not model hand-holding)
+1. **Diagnostics-as-data** — the loader collects *all* defects (errors + warnings),
+   never throws on first. `nrt validate` renders them.
+2. **Typed event stream** — one `events[]` union (`run_start`, `plan_*`, `tool_call`,
+   `tool_blocked`, `verify_*`, `run_end`, …) powers `nrt trace`, assertions, future UI.
+3. **Runtime allowlist enforcement** — a non-declared tool returns a *blocked result*
+   + emits `tool_blocked` and fails the run, in prod — not merely a CI assertion.
+4. **Phase set per `role_family`** — a pure executor skips plan+verify entirely.
 
 ## Layout
 
 ```
-runtime/core.py        State machine, loader, brokers (Model/Tool/Memory), PiAgent, dispatch()
+runtime/core.py        Phase/State machine, diagnostics loader, brokers, PiAgent, dispatch()
 tools/nrt.py           NEOS Runtime Tester (validate | test | trace | suite | golden)
 neops/<id>/
-  neop.md              Frontmatter (neop_id, version, limits, tools, model roles, acp) + role prose
-  tools.json           Tool universe; frontmatter `tools:` must be a SUBSET of this (allowlist)
+  neop.md              Frontmatter (neop_id, version, limits, role_family, tools, model, acp) + role prose
+  tools.json           Tool universe; frontmatter `tools:` must be a SUBSET (allowlist)
+  planner.md/verifier.md   Optional subagent prompts (warned if absent for a phase the role runs)
   fixtures/
-    eval.jsonl         Cases: {case_id, input:{text}, expect:{terminal_state, golden_plan, must_call_tools, ...}}
+    eval.jsonl         Cases: {case_id, input:{text}, expect:{terminal_state, expected_phases,
+                              golden_plan, must_call_tools, must_not_call_tools, max_replans, ...}}
     golden_plan.json   Structural plan asserted against (task set + dep edges + tool assignment)
     mocks/tools.json   Tool mocks; {"$reflect_field":"text"} echoes an input field
     cassettes/<case>.json  Recorded model outputs, keyed <phase>:<sha256(prompt)[:16]>
 ```
 
+## NEops
+
+- **echo** (`role_family: meta`) — hello-world; full plan→execute→verify.
+- **ping** (`role_family: executor`) — pure executor; `[execute]` only, no model calls.
+
 ## Run
 
 ```bash
-python3 tools/nrt.py validate neops/echo      # frontmatter + allowlist subset check
-python3 tools/nrt.py test     neops/echo      # run all fixtures (unit mode, deterministic)
-python3 tools/nrt.py trace    neops/echo --case echo_hello   # per-phase trace
-python3 tools/nrt.py suite    neops            # CI entrypoint: every NEop
+python3 tools/nrt.py validate neops/echo
+python3 tools/nrt.py test     neops/echo
+python3 tools/nrt.py trace    neops/ping --case ping_basic   # typed event stream
+python3 tools/nrt.py suite    neops                          # CI entrypoint: every NEop
 ```
 
 ## Test modes
 
-- **unit** (default): deterministic. Model calls resolve from cassettes (with single-entry
-  "bootstrap tolerance"); tools resolve from mocks. No network, no LLM.
+- **unit** (default): deterministic. Model calls replay from cassettes (single-entry
+  "bootstrap tolerance"); tools resolve from mocks. No network, no LLM, no key.
 - **integration**: live model with recorded cassettes — `nrt golden --record` (next increment).
 
 ## Status
 
-- **Step 1 — done.** Runtime skeleton + `echo` hello-world NEop green under `nrt`
-  (happy path `DONE`; allowlist enforcement `FAILED` a non-declared tool).
-- Step 2 — real planner/executor/verifier roles behind the stub seam + cassette record/replay.
-- Step 3 — ACP (`publishes`/`subscribes`) so NEops compose into a graph.
-- Step 4 — more NEops + `role_family`-driven phase config (executor-only NEops skip plan/verify).
+- **Step 1 — done.** Runtime contract + `echo` green under `nrt`.
+- **Step 2 — done.** v2 refactor: diagnostics-as-data, typed event stream, runtime
+  allowlist enforcement, `role_family`-driven phase sets; `ping` executor NEop added.
+- Step 3 — integration mode: live planner/executor/verifier behind the cassette seam
+  + `nrt golden --record`.
+- Step 4 — ACP (`publishes`/`subscribes`) so NEops compose into a graph.
