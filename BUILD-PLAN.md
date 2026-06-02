@@ -22,7 +22,7 @@ canonical. Detail lives in NE-TSD-NC-V2 S1/S2/S3.
 | P2 Recon (DAG) | ✅ done | executor: topo-order by `depends_on` + output threading |
 | P3 Memory (MemPalace) | ✅ done | MemoryBroker (3rd seam) + assemble/run_end + memory events |
 | P4 Twin v0 + Interviewer + Shadow | ✅ done | NEop-output-as-context (assemble prepends `twin.md`) |
-| P5 Front door | ⬜ next | concurrency/latency layer above `dispatch()` |
+| P5 Front door | ✅ done | gateway + orchestrator above `dispatch()` (core untouched) |
 
 ## Locked contracts
 
@@ -80,7 +80,29 @@ Convex client (segregated interface) + assemble prepend + non-blocking shadow pa
 - **Safety:** unit-only; no live twin writes to prod Convex; read-only `get_twin` smoke against a
   scratch seat only on explicit go-ahead.
 
+### Front door (P5) — nc-gateway + nc-orchestrator  [✅ done]
+
+Forces: first concurrent, latency-bound surface. Lives in `frontdoor/` **above** `dispatch()`;
+`core.py` / the `dispatch()` signature / the agent loop are **untouched** (orchestrator only calls dispatch).
+
+- **Envelope** `NeuralChatMessage`: `msg_id, tenant_id, channel, conversation_id, thread_id,
+  user_id ("tenant:seat"), text, attachments, mentions[], ts, metadata`.
+- **Identity threading (the pin):** `(tenant, seat)` resolved **once** at the gateway, carried in the
+  envelope, threaded **unchanged** into the dispatch msg → brokers. Proven: an `@cortex` round-trip's
+  memory-write provenance carries `author_id=seat`, `tenant=tenant`.
+- **Gateway:** `normalize` → envelope; `authenticate` (Matrix token + adapter HMAC, presence-checked
+  offline); `resolve_identity`; `RateLimiter` (60 msg/min/seat, 16 concurrent/tenant → 429).
+- **Orchestrator (COC-1..5):** `classify → (neop, confidence)` (recorded seam unit / live integration);
+  ≥0.7 dispatch else 1 disambiguation (COC-2/3); direct `@mention` bypass (COC-4); `+`-chain guard
+  needs `explicit_intent` (COC-5).
+- **Loader resolution:** `tenant-override → builtin (agents/) → operator-fallback`, first match wins.
+- **Latency boundary (NFR-1):** `overhead_ms` measures gateway+route+resolve and **excludes** dispatch
+  (Pi-agent work); asserted < 800ms.
+- **Deferred (traps):** four-layer ACL / multi-tenant isolation theater, SSO/OIDC, real Matrix/NATS/
+  Sliding-Sync, automation-flywheel receive side, nc-web beyond a stub. Single seat dogfooded first.
+
 ## Testing
 - `python3 nrt/cli.py suite agents` — agent-level (every NEop).
 - `python3 tests/test_memory.py` — broker-level units (dedup idempotency, tenant guard).
 - `python3 tests/test_twin.py` — broker-level units (versioning, signal preservation, stale base, schema).
+- `python3 tests/test_frontdoor.py` — front-door units (gateway/429/auth, COC-1..5, loader, round-trip, identity threading).

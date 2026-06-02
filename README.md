@@ -28,6 +28,8 @@ host; a Pi-agent = a running NEop session; planner/executor/verifier = Pi-subage
 runtime/core.py        Phase/State machine, diagnostics loader, brokers, PiAgent, dispatch()
 runtime/aws.py         Read-only boto3 tool registry (live integration-mode AWS tools)
 runtime/memory.py      Live MemPalace client (facade over Convex /mcp); integration-mode memory
+runtime/twin.py        Twin v0 schema + validator + prompt-assembly helper
+frontdoor/             P5 front door ABOVE dispatch(): gateway · loader · orchestrator (core untouched)
 nrt/cli.py             NEOS Runtime Tester (validate | test | trace | suite | golden)
 agents/<id>/
   neop.md              Frontmatter (neop_id, version, limits, role_family, tools, model, acp) + role prose
@@ -137,4 +139,8 @@ python3 nrt/cli.py suite    agents                         # CI entrypoint: ever
 - **P4 (Twin v0) — done.** `get_twin`/`put_twin` on the broker; `assemble` prepends the seat twin
   (opt-in `twin:`); `interviewer` writes v0 + `twin_written`; `decision-shadow` non-blocking
   `shadow_prediction`; versioning + stale-`base_version` rejection. Prior NEops unchanged.
-- P5 — front door (nc-gateway + nc-orchestrator above `dispatch()`).
+- **P5 (Front door) — done.** `frontdoor/` (gateway + orchestrator) above `dispatch()`; envelope
+  normalize/auth/identity/rate-limit (429), COC-1..5 routing, loader resolution, streamed round-trip
+  on one seat. Identity `(tenant, seat)` threaded gateway→dispatch→brokers unchanged. **`core.py` untouched.**
+
+**The vertical slice is complete: inbound message → gateway → orchestrator → `dispatch()` → NEop → streamed reply, on one seat, fully offline-gradeable.**
