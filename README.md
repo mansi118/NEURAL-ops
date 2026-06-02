@@ -45,6 +45,16 @@ neops/<id>/
 - **echo** (`role_family: meta`) — hello-world; full plan→execute→verify.
 - **ping** (`role_family: executor`) — pure executor; `[execute]` only, no model calls.
 - **aws-probe** (`role_family: executor`) — read-only AWS; calls `sts_whoami`, publishes caller identity.
+- **recon** (`role_family: sales`) — first real-work NEop; 3-task DAG `search_leads → enrich_lead → dedupe`
+  with `depends_on` edges, output threaded forward. Exercises the DAG executor and bounded-replan path.
+
+## Mock keying (P2 decision)
+
+Tool mocks are keyed by **tool name**. This held for Recon's 3-task DAG: each tool is
+called once (and in the escalate path `search_leads` is called 3× but always wants the
+same output, so no collision). Args-hash keying (`tool+sha(args)`) is **deferred** until a
+real fan-out plan calls one tool many times with different args (e.g. enrich-per-lead) —
+decided on pressure, not speculatively.
 
 ## AWS
 
@@ -76,6 +86,10 @@ python3 tools/nrt.py suite    neops                          # CI entrypoint: ev
 - **Step 1 — done.** Runtime contract + `echo` green under `nrt`.
 - **Step 2 — done.** v2 refactor: diagnostics-as-data, typed event stream, runtime
   allowlist enforcement, `role_family`-driven phase sets; `ping` executor NEop added.
-- Step 3 — integration mode: live planner/executor/verifier behind the cassette seam
-  + `nrt golden --record`.
-- Step 4 — ACP (`publishes`/`subscribes`) so NEops compose into a graph.
+- **AWS — done.** Read-only boto3 tool registry + `aws-probe` NEop.
+- **P2 (Recon) — done.** DAG executor (topo order by `depends_on` + output threading);
+  `recon` sales NEop; happy→DONE and replan-exhaustion→ESCALATED green. Deferred: the
+  recover-via-replan fixture (DONE via REPLANNING) needs per-attempt cassette keys —
+  that's the `nrt golden --record` increment, not bootstrap-tolerance.
+- P3 — real MemoryBroker over MemPalace (unit=recorded bundles / integration=live) +
+  consumer NEop. Trace MemPalace surface first.

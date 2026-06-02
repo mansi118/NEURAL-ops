@@ -1,0 +1,7 @@
+{
+  "tasks": [
+    { "task_id": "find_leads", "tool": "search_leads", "depends_on": [] },
+    { "task_id": "enrich",     "tool": "enrich_lead",  "depends_on": ["find_leads"] },
+    { "task_id": "dedupe",     "tool": "dedupe",       "depends_on": ["enrich"] }
+  ]
+}

@@ -270,14 +270,42 @@ class PiAgent:
                            "depends_on": [], "tool": tool, "acceptance": "tool returns",
                            "scope": "tool"}], "max_replans": 0, "_implicit": True}
 
+    @staticmethod
+    def _topo_order(tasks):
+        """Order tasks so every task runs after its depends_on. Stable (preserves
+        listed order among independents). Raises on cycle. (P2 DAG executor.)"""
+        by_id = {t["task_id"]: t for t in tasks}
+        order, done, temp = [], set(), set()
+
+        def visit(tid):
+            if tid in done:
+                return
+            if tid in temp:
+                raise RuntimeError(f"cycle in plan at task '{tid}'")
+            temp.add(tid)
+            for dep in by_id[tid].get("depends_on", []):
+                if dep in by_id:
+                    visit(dep)
+            temp.discard(tid)
+            done.add(tid)
+            order.append(by_id[tid])
+
+        for t in tasks:
+            visit(t["task_id"])
+        return order
+
     def _execute_and_maybe_verify(self, plan, msg):
         self.outputs = {}
-        for task in plan["tasks"]:
+        for task in self._topo_order(plan["tasks"]):
             self.state = State.EXECUTING
             tool = task.get("tool")
             if tool:
                 self._e("tool_call", task=task["task_id"], tool=tool)
-                out = self.tools.invoke(tool, {"text": msg.get("text")})
+                # thread upstream outputs into this task's input scope, keyed by dep task_id
+                scope = {"text": msg.get("text")}
+                for dep in task.get("depends_on", []):
+                    scope[dep] = self.outputs.get(dep)
+                out = self.tools.invoke(tool, scope)
                 if isinstance(out, dict) and out.get("_blocked"):
                     self._e("tool_blocked", task=task["task_id"], tool=tool, reason=out["reason"])
                     self.state = State.FAILED

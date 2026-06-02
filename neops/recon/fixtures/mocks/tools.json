@@ -1,0 +1,5 @@
+{
+  "search_leads": { "leads": ["acme", "globex", "acme"] },
+  "enrich_lead": { "$reflect_field": "find_leads" },
+  "dedupe": { "$reflect_field": "enrich" }
+}
