@@ -80,22 +80,24 @@ def handle(raw, classifier, *, mode="unit", rate=None, now_s=0.0,
     t0 = time.time()
     gateway.authenticate(raw)
     envelope = gateway.normalize(raw)
-    tenant, seat = gateway.resolve_identity(envelope)
-    (rate or gateway.RateLimiter()).check(tenant, seat, now_s)
+    tenant, requester = gateway.resolve_identity(envelope)        # requester = HUMAN, not the run seat
+    (rate or gateway.RateLimiter()).check(tenant, requester, now_s)  # GW-3: throttle the human
     decision = route(envelope, classifier)
     if decision["action"] != "dispatch":
-        return {"type": decision["action"], "tenant": tenant, "seat": seat,
+        return {"type": decision["action"], "tenant": tenant, "requester": requester,
                 "decision": decision, "overhead_ms": round((time.time() - t0) * 1000)}
-    folder = loader.resolve(decision["neop"], tenant, builtin_root=builtin_root,
+    run_seat = decision["neop"]                                   # run seat = the ROUTED NEop (its own memory/twin key)
+    folder = loader.resolve(run_seat, tenant, builtin_root=builtin_root,
                             tenant_root=tenant_root, operator_root=operator_root)
     if folder is None:
-        return {"type": "error", "reason": f"neop '{decision['neop']}' not found",
-                "tenant": tenant, "seat": seat, "overhead_ms": round((time.time() - t0) * 1000)}
-    # THREAD identity into the dispatch msg, unchanged. dispatch()/core.py untouched.
-    msg = {"text": envelope["text"], "tenant": tenant, "seat": seat}
-    overhead_ms = round((time.time() - t0) * 1000)  # boundary: everything BEFORE dispatch (NFR-1)
+        return {"type": "error", "reason": f"neop '{run_seat}' not found",
+                "tenant": tenant, "requester": requester, "overhead_ms": round((time.time() - t0) * 1000)}
+    # Identity threading: (tenant, run_seat) key the NEop's memory/twin; requester rides along
+    # as attribution only — never as the memory/twin key. dispatch()/core.py untouched.
+    msg = {"text": envelope["text"], "tenant": tenant, "seat": run_seat, "requester": requester}
+    overhead_ms = round((time.time() - t0) * 1000)  # boundary: everything BEFORE dispatch (a floor, not the SLO)
     cas, mocks, mem, twin = _unit_backing(folder)
     result = dispatch(folder, msg, mode, cas, mocks, [], memory=mem, twin=twin)
-    return {"type": "response", "neop": decision["neop"], "tenant": tenant, "seat": seat,
+    return {"type": "response", "neop": run_seat, "tenant": tenant, "seat": run_seat, "requester": requester,
             "dispatched_msg": msg, "state": result["state"],
             "stream": list(stream_tokens(result)), "result": result, "overhead_ms": overhead_ms}

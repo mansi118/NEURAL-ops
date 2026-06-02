@@ -52,14 +52,20 @@ def normalize(raw, *, msg_id="msg_unit", ts="1970-01-01T00:00:00Z"):
 
 
 def resolve_identity(envelope):
-    """(tenant, seat) resolved ONCE here; carried unchanged downstream. user_id = tenant:seat."""
+    """Resolve (tenant, requester) from user_id = "tenant:requester".
+
+    requester is the HUMAN making the request — used for rate-limit + attribution.
+    It is NOT the run seat: the run seat is the routed NEop's id (set by the
+    orchestrator), which keys that NEop's own memory and twin. Conflating the two
+    cross-wires memory/twin — so this returns the requester, never a run seat.
+    """
     uid = envelope["user_id"]
     if ":" not in uid:
-        raise GatewayError(f"user_id '{uid}' not in tenant:seat form")
-    tenant, seat = uid.split(":", 1)
+        raise GatewayError(f"user_id '{uid}' not in tenant:requester form")
+    tenant, requester = uid.split(":", 1)
     if envelope.get("tenant_id") and envelope["tenant_id"] != tenant:
         raise GatewayError("tenant_id does not match user_id prefix")
-    return tenant, seat
+    return tenant, requester
 
 
 class RateLimiter:

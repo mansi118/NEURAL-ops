@@ -87,17 +87,23 @@ Forces: first concurrent, latency-bound surface. Lives in `frontdoor/` **above**
 
 - **Envelope** `NeuralChatMessage`: `msg_id, tenant_id, channel, conversation_id, thread_id,
   user_id ("tenant:seat"), text, attachments, mentions[], ts, metadata`.
-- **Identity threading (the pin):** `(tenant, seat)` resolved **once** at the gateway, carried in the
-  envelope, threaded **unchanged** into the dispatch msg → brokers. Proven: an `@cortex` round-trip's
-  memory-write provenance carries `author_id=seat`, `tenant=tenant`.
+- **Identity threading (the pin) — run seat ≠ requester:** `tenant` ← envelope; **run `seat` ← the
+  routed NEop** (classification / `@mention`) — it keys *that NEop's* memory + twin; the human
+  `user_id` rides along as **`requester`** (rate-limit + attribution), **never** as the memory/twin key.
+  Threaded into the dispatch msg with **zero `dispatch()`/`core.py` change**. Proven by a
+  differing-requester case: `neuraledge:ml` invokes `@cortex` → memory provenance `author_id=cortex`
+  (not `ml`).
 - **Gateway:** `normalize` → envelope; `authenticate` (Matrix token + adapter HMAC, presence-checked
-  offline); `resolve_identity`; `RateLimiter` (60 msg/min/seat, 16 concurrent/tenant → 429).
+  offline); `resolve_identity → (tenant, requester)`; `RateLimiter` — **60 msg/min/requester** active;
+  the **16 concurrent/tenant** cap is a deterministic in-flight counter (`enter`/`leave`), wired at
+  integration (not auto-driven in the sync unit path).
 - **Orchestrator (COC-1..5):** `classify → (neop, confidence)` (recorded seam unit / live integration);
   ≥0.7 dispatch else 1 disambiguation (COC-2/3); direct `@mention` bypass (COC-4); `+`-chain guard
   needs `explicit_intent` (COC-5).
 - **Loader resolution:** `tenant-override → builtin (agents/) → operator-fallback`, first match wins.
 - **Latency boundary (NFR-1):** `overhead_ms` measures gateway+route+resolve and **excludes** dispatch
-  (Pi-agent work); asserted < 800ms.
+  (Pi-agent work). The unit number is a near-zero **floor** proving the boundary; the actual
+  p50≤800ms / p95≤2s budget is an **integration** SLO, not something the unit gate proves.
 - **Deferred (traps):** four-layer ACL / multi-tenant isolation theater, SSO/OIDC, real Matrix/NATS/
   Sliding-Sync, automation-flywheel receive side, nc-web beyond a stub. Single seat dogfooded first.
 

@@ -141,6 +141,7 @@ python3 nrt/cli.py suite    agents                         # CI entrypoint: ever
   `shadow_prediction`; versioning + stale-`base_version` rejection. Prior NEops unchanged.
 - **P5 (Front door) — done.** `frontdoor/` (gateway + orchestrator) above `dispatch()`; envelope
   normalize/auth/identity/rate-limit (429), COC-1..5 routing, loader resolution, streamed round-trip
-  on one seat. Identity `(tenant, seat)` threaded gateway→dispatch→brokers unchanged. **`core.py` untouched.**
+  on one seat. **Run `seat` = the routed NEop** (keys its own memory/twin); the human `user_id` rides
+  along as `requester` (attribution), never the memory key. Threaded gateway→dispatch→brokers with **`core.py` untouched.**
 
 **The vertical slice is complete: inbound message → gateway → orchestrator → `dispatch()` → NEop → streamed reply, on one seat, fully offline-gradeable.**
