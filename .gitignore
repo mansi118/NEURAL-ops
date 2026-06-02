@@ -1,0 +1,8 @@
+# Claude Code personal settings (do not commit)
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/

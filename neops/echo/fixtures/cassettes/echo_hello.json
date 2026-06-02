@@ -1,0 +1,8 @@
+{
+  "plan:bootstrap": {
+    "tasks": [
+      { "task_id": "echo", "tool": "echo_tool", "depends_on": [] }
+    ]
+  },
+  "verify:bootstrap": { "pass": true }
+}
