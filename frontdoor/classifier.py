@@ -11,7 +11,12 @@ import os, json, pathlib
 
 __all__ = ["ClassifierError", "live_classifier", "bedrock_classifier", "catalog_from_agents"]
 
-BEDROCK_HAIKU = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+# All Anthropic models on Bedrock require this account's one-time "Anthropic use case
+# details" form (submit in the Bedrock console, ap-south-1). Until then, Converse returns
+# ResourceNotFoundException ("use case details have not been submitted"). Once cleared,
+# this default works; set BEDROCK_MODEL_ID to upgrade to 4.5 Haiku
+# ("global.anthropic.claude-haiku-4-5-20251001-v1:0").
+BEDROCK_HAIKU = "apac.anthropic.claude-3-haiku-20240307-v1:0"
 
 
 def _classify_prompt(catalog, text):
