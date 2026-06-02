@@ -27,8 +27,8 @@ host; a Pi-agent = a running NEop session; planner/executor/verifier = Pi-subage
 ```
 runtime/core.py        Phase/State machine, diagnostics loader, brokers, PiAgent, dispatch()
 runtime/aws.py         Read-only boto3 tool registry (live integration-mode AWS tools)
-tools/nrt.py           NEOS Runtime Tester (validate | test | trace | suite | golden)
-neops/<id>/
+nrt/cli.py             NEOS Runtime Tester (validate | test | trace | suite | golden)
+agents/<id>/
   neop.md              Frontmatter (neop_id, version, limits, role_family, tools, model, acp) + role prose
   tools.json           Tool universe; frontmatter `tools:` must be a SUBSET (allowlist)
   planner.md/verifier.md   Optional subagent prompts (warned if absent for a phase the role runs)
@@ -69,10 +69,10 @@ No mutating AWS tools ship without an explicit, reviewed addition.
 ## Run
 
 ```bash
-python3 tools/nrt.py validate neops/echo
-python3 tools/nrt.py test     neops/echo
-python3 tools/nrt.py trace    neops/ping --case ping_basic   # typed event stream
-python3 tools/nrt.py suite    neops                          # CI entrypoint: every NEop
+python3 nrt/cli.py validate agents/echo
+python3 nrt/cli.py test     agents/echo
+python3 nrt/cli.py trace    agents/ping --case ping_basic   # typed event stream
+python3 nrt/cli.py suite    agents                         # CI entrypoint: every NEop
 ```
 
 ## Test modes
