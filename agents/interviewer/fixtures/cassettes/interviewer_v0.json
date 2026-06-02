@@ -1,0 +1,8 @@
+{
+  "plan:interviewer": {
+    "tasks": [
+      { "task_id": "draft", "tool": "draft_twin", "depends_on": [] }
+    ]
+  },
+  "verify:interviewer": { "pass": true }
+}

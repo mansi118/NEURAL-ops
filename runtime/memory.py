@@ -18,7 +18,7 @@ tenant -> palaceId (e.g. "neuraledge"); seat -> neopId (e.g. "aria").
 from __future__ import annotations
 import os, json, urllib.request
 
-__all__ = ["MemPalaceError", "retrieve", "write"]
+__all__ = ["MemPalaceError", "retrieve", "write", "get_twin", "put_twin"]
 
 
 class MemPalaceError(RuntimeError):
@@ -76,3 +76,15 @@ def write(tenant, seat, record):
     return {"status": resp.get("status", "ok"),
             "closet_id": resp.get("closetId") or resp.get("closetsCreated"),
             "dedup_key": record.get("provenance", {}).get("source_external_id")}
+
+
+# --- twin (structured record; tool names unverified against live Convex — integration deferred)
+def get_twin(tenant, seat):
+    resp = _post("twin_get", tenant, seat, {})
+    return resp.get("twin")
+
+
+def put_twin(tenant, seat, twin):
+    resp = _post("twin_put", tenant, seat, {"twin": twin})
+    return {"status": resp.get("status", "ok"), "twin_id": f"{tenant}:{seat}",
+            "version": twin.get("version"), "maturity": twin.get("maturity")}

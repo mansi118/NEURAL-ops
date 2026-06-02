@@ -21,6 +21,8 @@ try:
 except ImportError:  # pragma: no cover
     raise SystemExit("pip install pyyaml")
 
+from runtime.twin import twin_preamble, validate_twin  # twin v0 (seed) helpers
+
 
 # ============================================================ phases & states
 class Phase(str, enum.Enum):
@@ -62,6 +64,7 @@ TERMINAL = {State.DONE, State.FAILED, State.ESCALATED, State.REJECTED}
 # One typed union, emitted by the run, consumed by nrt trace / assertions / future UI.
 EVENT_TYPES = {
     "run_start", "assemble", "memory_retrieve", "memory_write",
+    "twin_assembled", "twin_written", "shadow_prediction",
     "plan_start", "plan_end",
     "tool_call", "tool_result", "tool_blocked",
     "verify_start", "verify_end", "replan", "escalate", "run_end",
@@ -207,13 +210,15 @@ class MemoryBroker:
     unit        -> recorded bundle (fixtures/memory/<case>.json); no network.
     integration -> live MemPalace over HTTP (runtime.memory), lazy + credential-gated.
     """
-    def __init__(self, mode, stm, *, bundle=None, provider=None):
+    def __init__(self, mode, stm, *, bundle=None, provider=None, twin=None):
         self.mode = mode
         self.stm = stm or []
         self.bundle = bundle or {}
         self.provider = provider
+        self.twin = twin or None          # recorded seat twin (unit); structured record
         self.writes = []
         self.consolidations = []
+        self.twin_writes = []
 
     def retrieve(self, tenant, seat, query, tiers=None, k=5):
         # tiers: MemPalace has no tier param (STM/LTM is implicit) -> accepted, advisory no-op.
@@ -258,6 +263,41 @@ class MemoryBroker:
         self.consolidations.append(rec)
         return rec
 
+    # --- twin: structured records (Convex SoT), keyed tenant:seat ----------------
+    def get_twin(self, tenant, seat):
+        if self.mode == "unit":
+            t = self.twin
+            return t if (t and t.get("twin_id") == f"{tenant}:{seat}") else None
+        if self.mode == "integration":
+            return self._live().get_twin(tenant, seat)
+        raise RuntimeError(f"memory mode '{self.mode}' not supported")
+
+    def put_twin(self, tenant, seat, twin):
+        # versioned-on-change; signals interface preserved across re-runs (INT-8).
+        twin = {**twin, "twin_id": f"{tenant}:{seat}"}
+        twin.setdefault("maturity", "seed")
+        prev = self.get_twin(tenant, seat)
+        base = twin.pop("base_version", None)           # optimistic concurrency (optional)
+        if prev and base is not None and base != prev.get("version"):
+            return {"status": "rejected", "diagnostics": [{
+                "severity": "error", "code": "stale_base_version",
+                "msg": f"base_version {base} != current {prev.get('version')}"}]}
+        twin["version"] = (prev["version"] + 1) if (prev and isinstance(prev.get("version"), int)) else 0
+        if prev and prev.get("signals") and not twin.get("signals"):
+            twin["signals"] = prev["signals"]
+        errs = validate_twin(twin)
+        if errs:
+            return {"status": "rejected", "diagnostics": errs}
+        diff_id = f"{twin['twin_id']}@v{twin['version']}"   # seed: id only; compressed diff is P-later
+        if self.mode == "unit":
+            self.twin = twin
+            self.twin_writes.append(twin)
+            return {"status": "ok", "twin_id": twin["twin_id"], "version": twin["version"],
+                    "maturity": twin["maturity"], "diff_id": diff_id}
+        if self.mode == "integration":
+            return self._live().put_twin(tenant, seat, twin)
+        raise RuntimeError(f"memory mode '{self.mode}' not supported")
+
     def _live(self):
         if self.provider is None:
             from runtime import memory as _m
@@ -277,7 +317,11 @@ class PiAgent:
         self.plan = None
         self.outputs = {}
         self.mem_cfg = defn["frontmatter"].get("memory") or {}   # {read?, write?}
+        self.twin_cfg = defn["frontmatter"].get("twin") or {}    # {read?, write?} — opt-in
         self.bundle = {}                                          # chunks folded in at assemble
+        self.twin = None                                          # seat twin, prepended at assemble
+        self.twin_written = None                                  # put_twin ack (producers)
+        self.shadow = None                                        # decision-shadow record
         self.t0 = time.time()
 
     def _e(self, kind, **f): self.events.append(event(kind, self.t0, **f))
@@ -286,13 +330,22 @@ class PiAgent:
         self._e("run_start", neop=self.defn["id"], role_family=self.defn["role_family"],
                  phases=[p.value for p in self.phases])
         self.state = State.ASSEMBLING
+        tenant, seat = msg.get("tenant", "default"), msg.get("seat", self.defn["id"])
         self.bundle = {}
         if self.mem_cfg.get("read"):
-            tenant, seat = msg.get("tenant", "default"), msg.get("seat", self.defn["id"])
             self.bundle = self.mem.retrieve(tenant, seat, msg.get("text", ""))
             self._e("memory_retrieve", tenant=tenant, seat=seat,
                     chunks=len(self.bundle.get("chunks", [])),
                     ids=[c["id"] for c in self.bundle.get("chunks", [])])
+        # session order (T-5): tenant_ctx · twin · STM · PALACE. Twin is opt-in (twin.read)
+        # and prepended to the prompt before the model call; no twin -> prior NEops unchanged.
+        if self.twin_cfg.get("read"):
+            tw = self.mem.get_twin(tenant, seat)
+            if tw:
+                self.twin = tw
+                self.bundle["twin"] = tw
+                self._e("twin_assembled", twin_id=tw.get("twin_id"),
+                        maturity=tw.get("maturity"), version=tw.get("version"))
         self._e("assemble", stm=len(self.mem.stm))
 
         # PLAN (only if role runs it) — else synthesize a one-task implicit plan
@@ -329,13 +382,31 @@ class PiAgent:
             ack = self.mem.write(tenant, seat, record)
             self.mem.consolidate(tenant, seat)          # STM->LTM hook (stub body, real call)
             self._e("memory_write", cites=record["cites"], status=ack.get("status"))
+        fm = self.defn["frontmatter"]
+        if self.twin_cfg.get("write"):                  # Interviewer: write twin.md v0
+            tenant, seat = msg.get("tenant", "default"), msg.get("seat", self.defn["id"])
+            draft = next(iter(self.outputs.values()), {}) if self.outputs else {}
+            self.twin_written = self.mem.put_twin(tenant, seat, draft)
+            if self.twin_written.get("status") == "rejected":
+                self.state = State.FAILED               # invalid/stale twin -> fail the run
+            else:
+                self._e("twin_written", seat=seat, version=self.twin_written.get("version"),
+                        diff_id=self.twin_written.get("diff_id"))
+        if fm.get("shadow"):                            # Decision Shadow (Flow 5)
+            predicted = next(iter(self.outputs.values()), None)
+            actual = msg.get("actual")
+            self.shadow = {"predicted": predicted, "actual": actual,
+                           "agreed": predicted == actual,
+                           "class": msg.get("decision_class", "selective")}
+            # emitted post-terminal -> structurally off the critical path (non-blocking)
+            self._e("shadow_prediction", **self.shadow)
         self._e("run_end", state=self.state.value, replans=self.replans)
         return self._result()
 
     def _plan(self, msg):
         self.state = State.PLANNING
         self._e("plan_start")
-        prompt = self.defn["planner"] + "\nINPUT:" + json.dumps(msg, sort_keys=True)
+        prompt = twin_preamble(self.twin) + self.defn["planner"] + "\nINPUT:" + json.dumps(msg, sort_keys=True)
         plan = self.model.call("plan", prompt)
         self._e("plan_end", tasks=[t["task_id"] for t in plan["tasks"]])
         return plan
@@ -394,7 +465,8 @@ class PiAgent:
             if Phase.VERIFY in self.phases:
                 self.state = State.VERIFYING
                 self._e("verify_start", task=task["task_id"])
-                vprompt = (self.defn["verifier"] + "\nTASK:" + json.dumps(task, sort_keys=True)
+                vprompt = (twin_preamble(self.twin) + self.defn["verifier"]
+                           + "\nTASK:" + json.dumps(task, sort_keys=True)
                            + "\nOUT:" + json.dumps(self.outputs.get(task["task_id"]), sort_keys=True)
                            + "\nINPUT:" + json.dumps(msg, sort_keys=True))
                 verdict = self.model.call("verify", vprompt)
@@ -410,18 +482,19 @@ class PiAgent:
                 "memory": {"retrieved": [c["id"] for c in self.bundle.get("chunks", [])],
                            "written": getattr(self.mem, "writes", []),
                            "consolidations": getattr(self.mem, "consolidations", [])},
+                "twin": self.twin, "twin_written": self.twin_written, "shadow": self.shadow,
                 "total_ms": round((time.time() - self.t0) * 1000)}
 
 
 # ============================================================ dispatch
-def dispatch(folder, msg, mode, cassette, mocks, stm, memory=None):
+def dispatch(folder, msg, mode, cassette, mocks, stm, memory=None, twin=None):
     defn, diags = load_neop(folder)
     if defn is None:
         return {"state": State.REJECTED.value, "diagnostics": diags,
                 "events": [], "tool_calls": []}
     agent = PiAgent(defn, ModelBroker(mode, cassette),
                     ToolBroker(mode, mocks, defn["tools"]),
-                    MemoryBroker(mode, stm, bundle=memory))
+                    MemoryBroker(mode, stm, bundle=memory, twin=twin))
     res = agent.run(msg)
     res["diagnostics"] = diags  # warnings surface even on success
     return res

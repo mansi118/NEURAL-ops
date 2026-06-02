@@ -67,6 +67,20 @@ def assert_case(result, expect, golden):
         wrote = len(mem.get("written", [])) > 0
         if wrote != expect["memory_wrote"]:
             fails.append(f"memory_wrote {wrote} != {expect['memory_wrote']}")
+    if "twin_assembled" in expect:
+        got = result.get("twin") is not None
+        if got != expect["twin_assembled"]:
+            fails.append(f"twin_assembled {got} != {expect['twin_assembled']}")
+    tw = result.get("twin_written") or {}
+    if "twin_version" in expect and tw.get("version") != expect["twin_version"]:
+        fails.append(f"twin_version {tw.get('version')} != {expect['twin_version']}")
+    if "twin_maturity" in expect and tw.get("maturity") != expect["twin_maturity"]:
+        fails.append(f"twin_maturity {tw.get('maturity')} != {expect['twin_maturity']}")
+    sh = result.get("shadow") or {}
+    if "shadow_agreed" in expect and sh.get("agreed") != expect["shadow_agreed"]:
+        fails.append(f"shadow_agreed {sh.get('agreed')} != {expect['shadow_agreed']}")
+    if "shadow_class" in expect and sh.get("class") != expect["shadow_class"]:
+        fails.append(f"shadow_class {sh.get('class')} != {expect['shadow_class']}")
     return fails
 
 
@@ -75,7 +89,8 @@ def run_case(agent, case, mode):
     cas = load_json(fx / "cassettes" / f"{case['case_id']}.json", {}) or {}
     mocks = load_json(fx / "mocks" / "tools.json", {}) or {}
     mem = load_json(fx / "memory" / f"{case['case_id']}.json", None)  # recorded memory bundle (unit)
-    result = dispatch(agent, case["input"], mode, cas, mocks, case.get("stm", []), memory=mem)
+    twin = load_json(fx / "twin" / f"{case['case_id']}.json", None)   # recorded seat twin (unit)
+    result = dispatch(agent, case["input"], mode, cas, mocks, case.get("stm", []), memory=mem, twin=twin)
     expect = case.get("expect", {})
     golden = load_json(fx / expect["golden_plan"]) if expect.get("golden_plan") else None
     return result, assert_case(result, expect, golden)

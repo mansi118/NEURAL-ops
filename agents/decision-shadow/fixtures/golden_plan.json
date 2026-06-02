@@ -1,0 +1,5 @@
+{
+  "tasks": [
+    { "task_id": "t1", "tool": "predict_tool", "depends_on": [] }
+  ]
+}

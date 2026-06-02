@@ -50,6 +50,20 @@ agents/<id>/
   with `depends_on` edges, output threaded forward. Exercises the DAG executor and bounded-replan path.
 - **cortex** (`role_family: meta`, `memory: {read, write}`) — first memory-aware NEop; retrieves in
   `assemble`, grounds output in chunks, writes provenance-stamped memory on `run_end`.
+- **interviewer** (`role_family: meta`, `twin: {write}`) — Flow 1; recorded transcript → schema-valid
+  `twin.md` v0 (`maturity: seed`) via `put_twin`; emits `twin_written`.
+- **decision-shadow** (`role_family: reactive`, `twin: {read}`) — Flow 5; predicts vs actual, emits a
+  **non-blocking** `shadow_prediction` after the terminal state is set.
+
+## Twin (P4)
+
+Per-seat `twin.md` (the user's decision model) is the first NEop-output-as-another's-context. Stored
+as a Convex structured record keyed `tenant:seat`, accessed through **named twin methods** on the
+broker (`get_twin`/`put_twin` — a *definite* fetch of one versioned doc, distinct from `palace_search`'s
+fuzzy top-k). Opt-in via frontmatter `twin: {read, write}` (mirrors `memory:`); a NEop that reads it has
+the twin **prepended to its prompt** before the model call (T-5: `tenant_ctx · twin · STM · PALACE`).
+`put_twin` versions-on-change, preserves `signals`, and rejects stale `base_version` / invalid schema.
+Deferred: the fidelity clock (`seed→growing→mature`), Twin Curator, drift/re-tune. Seed only.
 
 ## Memory (P3)
 
@@ -120,5 +134,7 @@ python3 nrt/cli.py suite    agents                         # CI entrypoint: ever
   integration=live Convex `/mcp` (gated); `assemble` folds chunks, `run_end` writes +
   consolidates, `memory_retrieve`/`memory_write` events; tenant guard proven; `cortex`
   consumer NEop green. Live smoke deferred (creds + prod palace).
-- P4 — twin v0 + Interviewer + Decision Shadow (uses this memory contract).
+- **P4 (Twin v0) — done.** `get_twin`/`put_twin` on the broker; `assemble` prepends the seat twin
+  (opt-in `twin:`); `interviewer` writes v0 + `twin_written`; `decision-shadow` non-blocking
+  `shadow_prediction`; versioning + stale-`base_version` rejection. Prior NEops unchanged.
 - P5 — front door (nc-gateway + nc-orchestrator above `dispatch()`).

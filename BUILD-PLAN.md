@@ -21,8 +21,8 @@ canonical. Detail lives in NE-TSD-NC-V2 S1/S2/S3.
 | P1 runtime + nrt | ✅ done | state machine + 3 brokers + typed event stream |
 | P2 Recon (DAG) | ✅ done | executor: topo-order by `depends_on` + output threading |
 | P3 Memory (MemPalace) | ✅ done | MemoryBroker (3rd seam) + assemble/run_end + memory events |
-| P4 Twin v0 + Interviewer + Shadow | ⬜ next | NEop-output-as-context (assemble prepends `twin.md`) |
-| P5 Front door | ⬜ | concurrency/latency layer above `dispatch()` |
+| P4 Twin v0 + Interviewer + Shadow | ✅ done | NEop-output-as-context (assemble prepends `twin.md`) |
+| P5 Front door | ⬜ next | concurrency/latency layer above `dispatch()` |
 
 ## Locked contracts
 
@@ -53,6 +53,34 @@ canonical. Detail lives in NE-TSD-NC-V2 S1/S2/S3.
 - Deferred: RRF/BM25/graph/recency fusion, Vault promotion, nightly consolidation cron,
   Gemini→Qwen3 embedding migration (current = Bedrock Titan v2).
 
+### Twin (P4) — Twin v0 + Interviewer + Decision Shadow  [✅ done]
+
+Forces: NEop-output-as-another's-context (first time). Seam: twin methods on the shared
+Convex client (segregated interface) + assemble prepend + non-blocking shadow path.
+
+- **twin.md** — YAML frontmatter (`twin_id: tenant:seat`, `version`, `maturity`,
+  `fidelity_score`, `identity`/`communication`/`decision_style`, `signals{}`) + markdown body.
+  Convex SoT, keyed `tenant:seat`, versioned-on-change with diffs.
+- **Twin access (NOT `palace_search`)** — definite fetch of one versioned doc, kept behind a
+  named interface, out of the chunk retrieve/write paths (so a `TwinBroker` extraction stays mechanical):
+  - `get_twin(tenant, seat) -> twin | None`
+  - `put_twin(tenant, seat, twin) -> {status, version, maturity, diff_id}` — bumps version,
+    preserves `signals`, rejects stale `base_version` (optimistic concurrency) + invalid schema.
+- **Assembly order (T-5, load-bearing):** session = `tenant_ctx · twin.md · STM · PALACE`,
+  twin prepended to the prompt before the model call. No twin → prior NEops unchanged.
+- **Opt-in** via frontmatter `twin: {read, write}` (mirrors P3 `memory:`); non-opted NEops make
+  no `get_twin` call and emit zero twin events.
+- **Events:** `twin_assembled` (read), `twin_written {seat, version, diff_id}` (write),
+  `shadow_prediction {predicted, actual, agreed, class}`.
+- **role_family:** interviewer = `meta` (verify = schema validation); decision-shadow = `reactive`.
+- **Non-blocking shadow:** terminal state set **before** shadow emits (structural guarantee) +
+  `max_latency_s` assertion. Proven by `agents/decision-shadow` (agree + diverge).
+- **Deferred (traps):** fidelity clock (seed→growing→mature, ≥0.65/30d), Twin Curator, drift/re-tune
+  UI, NATS `signals.*`, Redis cache, 80-question depth, live decision-shadow storage.
+- **Safety:** unit-only; no live twin writes to prod Convex; read-only `get_twin` smoke against a
+  scratch seat only on explicit go-ahead.
+
 ## Testing
 - `python3 nrt/cli.py suite agents` — agent-level (every NEop).
 - `python3 tests/test_memory.py` — broker-level units (dedup idempotency, tenant guard).
+- `python3 tests/test_twin.py` — broker-level units (versioning, signal preservation, stale base, schema).
