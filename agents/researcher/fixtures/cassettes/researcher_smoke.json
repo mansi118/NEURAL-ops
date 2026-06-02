@@ -1,0 +1,14 @@
+{
+  "plan:researcher": {
+    "tasks": [
+      {
+        "task_id": "t1",
+        "tool": "researcher_tool",
+        "depends_on": []
+      }
+    ]
+  },
+  "verify:researcher": {
+    "pass": true
+  }
+}

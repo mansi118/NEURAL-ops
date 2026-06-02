@@ -1,0 +1,14 @@
+{
+  "plan:proposal-writer": {
+    "tasks": [
+      {
+        "task_id": "t1",
+        "tool": "proposal-writer_tool",
+        "depends_on": []
+      }
+    ]
+  },
+  "verify:proposal-writer": {
+    "pass": true
+  }
+}

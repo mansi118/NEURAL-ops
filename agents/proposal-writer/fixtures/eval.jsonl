@@ -1,0 +1,1 @@
+{"case_id": "proposal-writer_smoke", "input": {"text": "hello", "tenant": "neuraledge", "seat": "proposal-writer"}, "expect": {"terminal_state": "DONE", "expected_phases": ["plan", "execute", "verify"], "golden_plan": "golden_plan.json", "must_call_tools": ["proposal-writer_tool"], "max_replans": 0}}

@@ -7,7 +7,7 @@ limits: { max_replans: 2, phase_timeout_s: { plan: 10, execute: 20, verify: 10 }
 memory: { read: true, write: false }   # grounded by default; recon doesn't persist
 twin: { read: true }                   # runs in the seat's own context
 tools: [search_leads, enrich_lead, dedupe]
-acp: { publishes: [recon_leads] }
+acp: { publishes: [lead_list] }
 ---
 # Recon NEop
 First real-work NEop (role_family=sales -> full plan -> execute -> verify). Builds a

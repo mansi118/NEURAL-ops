@@ -1,0 +1,1 @@
+{"case_id": "researcher_smoke", "input": {"text": "hello", "tenant": "neuraledge", "seat": "researcher"}, "expect": {"terminal_state": "DONE", "expected_phases": ["plan", "execute", "verify"], "golden_plan": "golden_plan.json", "must_call_tools": ["researcher_tool"], "max_replans": 0}}

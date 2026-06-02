@@ -1,0 +1,22 @@
+{
+  "chunks": [
+    {
+      "id": "m1",
+      "tenant": "neuraledge",
+      "text": "seed grounding for researcher",
+      "score": 0.6,
+      "category": "fact",
+      "source_adapter": "mcp",
+      "confidence": 0.5
+    }
+  ],
+  "provenance": [
+    {
+      "id": "m1",
+      "source_adapter": "mcp",
+      "author_type": "human",
+      "author_id": "ml",
+      "created_at": 1700000000
+    }
+  ]
+}
