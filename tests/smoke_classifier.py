@@ -12,7 +12,8 @@ BEDROCK_MODEL_ID. Run: python3 tests/smoke_classifier.py
 import os, sys, pathlib
 R = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(R))
-from frontdoor.classifier import bedrock_classifier, catalog_from_agents, BEDROCK_HAIKU  # noqa: E402
+from frontdoor.classifier import (  # noqa: E402
+    bedrock_classifier, live_classifier, catalog_from_agents, BEDROCK_HAIKU)
 
 # Chat-routable destinations (ping/aws-probe/decision-shadow are not user-facing routes).
 ROUTABLE = {"recon", "cortex", "echo", "interviewer"}
@@ -28,16 +29,20 @@ CONF_GATE = 0.7
 
 
 def main():
-    model = os.environ.get("BEDROCK_MODEL_ID", BEDROCK_HAIKU)
     catalog = catalog_from_agents(str(R / "agents"), only=ROUTABLE)
-    clf = bedrock_classifier(catalog, model_id=model)
+    # Prefer an Anthropic API key (fastest verdict path); else Bedrock (production parity).
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        clf, src = live_classifier(catalog), "Anthropic API (claude-haiku)"
+    else:
+        model = os.environ.get("BEDROCK_MODEL_ID", BEDROCK_HAIKU)
+        clf, src = bedrock_classifier(catalog, model_id=model), f"Bedrock {model}"
     try:
         clf("ping")                          # reachability probe
     except Exception as e:                   # noqa: BLE001 — any creds/access failure -> skip
-        print(f"SKIP: Bedrock not reachable ({type(e).__name__}: {str(e)[:80]}) — live smoke deferred.")
+        print(f"SKIP: classifier unreachable via {src} ({type(e).__name__}: {str(e)[:70]}) — deferred.")
         return 0
     print(f"catalog ({len(catalog)} routable): {sorted(catalog)}")
-    print(f"model: {model}\n")
+    print(f"source: {src}\n")
     disagreements = []
     for text, expected in CASES:
         neop, conf = clf(text)
