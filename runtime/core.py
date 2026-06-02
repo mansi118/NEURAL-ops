@@ -61,7 +61,8 @@ TERMINAL = {State.DONE, State.FAILED, State.ESCALATED, State.REJECTED}
 # ============================================================ typed event stream (steal #2)
 # One typed union, emitted by the run, consumed by nrt trace / assertions / future UI.
 EVENT_TYPES = {
-    "run_start", "assemble", "plan_start", "plan_end",
+    "run_start", "assemble", "memory_retrieve", "memory_write",
+    "plan_start", "plan_end",
     "tool_call", "tool_result", "tool_blocked",
     "verify_start", "verify_end", "replan", "escalate", "run_end",
 }
@@ -198,9 +199,59 @@ class ToolBroker:
 
 
 class MemoryBroker:
-    def __init__(self, stm): self.stm, self.writes = stm, []
-    def retrieve(self, *_a, **_k): return {"chunks": [], "provenance": []}
-    def write(self, rec): self.writes.append(rec)
+    """Third deterministic seam. The Pi-agent only calls retrieve()/write()/consolidate();
+    whether that resolves to a recorded bundle (unit) or live MemPalace (integration) is
+    broker-internal. MemPalace is a FACADE over Convex (system-of-record + vector index) +
+    Bedrock Titan embeddings; FalkorDB is advisory. Those details never touch the phase machine.
+
+    unit        -> recorded bundle (fixtures/memory/<case>.json); no network.
+    integration -> live MemPalace over HTTP (runtime.memory), lazy + credential-gated.
+    """
+    def __init__(self, mode, stm, *, bundle=None, provider=None):
+        self.mode = mode
+        self.stm = stm or []
+        self.bundle = bundle or {}
+        self.provider = provider
+        self.writes = []
+        self.consolidations = []
+
+    def retrieve(self, tenant, seat, query, tiers=None, k=5):
+        # tiers: MemPalace has no tier param (STM/LTM is implicit) -> accepted, advisory no-op.
+        if self.mode == "unit":
+            chunks = self.bundle.get("chunks", [])
+            # tenant guard (P-5/6): a seat in tenant A never sees tenant B's chunks.
+            visible = [c for c in chunks if c.get("tenant", tenant) == tenant][:k]
+            ids = {c["id"] for c in visible}
+            prov = [p for p in self.bundle.get("provenance", []) if p.get("id") in ids]
+            return {"chunks": visible, "provenance": prov}
+        if self.mode == "integration":
+            return self._live().retrieve(tenant, seat, query, k=k)
+        raise RuntimeError(f"memory mode '{self.mode}' not supported")
+
+    def write(self, tenant, seat, record):
+        prov = {"source_adapter": "neos-runtime",
+                "source_external_id": f"{tenant}:{seat}:{len(self.writes)}",
+                "author_type": "neop", "author_id": seat}
+        stamped = {**record, "tenant": tenant, "seat": seat, "provenance": prov}
+        if self.mode == "unit":
+            self.writes.append(stamped)
+            return {"status": "ok", "closet_id": f"unit-{len(self.writes)}",
+                    "dedup_key": prov["source_external_id"]}
+        if self.mode == "integration":
+            return self._live().write(tenant, seat, stamped)
+        raise RuntimeError(f"memory mode '{self.mode}' not supported")
+
+    def consolidate(self, tenant, seat):
+        # STM->LTM hook: real call site, stub body (no nightly cron yet).
+        rec = {"tenant": tenant, "seat": seat, "promoted": len(self.stm)}
+        self.consolidations.append(rec)
+        return rec
+
+    def _live(self):
+        if self.provider is None:
+            from runtime import memory as _m
+            self.provider = _m
+        return self.provider
 
 
 # ============================================================ Pi-agent
@@ -214,6 +265,8 @@ class PiAgent:
         self.max_replans = defn["frontmatter"]["limits"].get("max_replans", 2)
         self.plan = None
         self.outputs = {}
+        self.mem_cfg = defn["frontmatter"].get("memory") or {}   # {read?, write?}
+        self.bundle = {}                                          # chunks folded in at assemble
         self.t0 = time.time()
 
     def _e(self, kind, **f): self.events.append(event(kind, self.t0, **f))
@@ -222,7 +275,13 @@ class PiAgent:
         self._e("run_start", neop=self.defn["id"], role_family=self.defn["role_family"],
                  phases=[p.value for p in self.phases])
         self.state = State.ASSEMBLING
-        self.mem.retrieve(msg)
+        self.bundle = {}
+        if self.mem_cfg.get("read"):
+            tenant, seat = msg.get("tenant", "default"), msg.get("seat", self.defn["id"])
+            self.bundle = self.mem.retrieve(tenant, seat, msg.get("text", ""))
+            self._e("memory_retrieve", tenant=tenant, seat=seat,
+                    chunks=len(self.bundle.get("chunks", [])),
+                    ids=[c["id"] for c in self.bundle.get("chunks", [])])
         self._e("assemble", stm=len(self.mem.stm))
 
         # PLAN (only if role runs it) — else synthesize a one-task implicit plan
@@ -251,6 +310,14 @@ class PiAgent:
             self.state = State.REPLANNING
             self.plan = self._plan(msg)
 
+        if self.mem_cfg.get("write"):
+            tenant, seat = msg.get("tenant", "default"), msg.get("seat", self.defn["id"])
+            chunks = self.bundle.get("chunks", [])
+            record = {"content": f"[{self.defn['id']}] {self.state.value} · {len(self.outputs)} outputs",
+                      "cites": [c["id"] for c in chunks], "category": "run"}
+            ack = self.mem.write(tenant, seat, record)
+            self.mem.consolidate(tenant, seat)          # STM->LTM hook (stub body, real call)
+            self._e("memory_write", cites=record["cites"], status=ack.get("status"))
         self._e("run_end", state=self.state.value, replans=self.replans)
         return self._result()
 
@@ -329,17 +396,21 @@ class PiAgent:
         return {"state": self.state.value, "plan": self.plan, "outputs": self.outputs,
                 "tool_calls": self.tools.calls, "replans": self.replans,
                 "phases": [p.value for p in self.phases], "events": self.events,
+                "memory": {"retrieved": [c["id"] for c in self.bundle.get("chunks", [])],
+                           "written": getattr(self.mem, "writes", []),
+                           "consolidations": getattr(self.mem, "consolidations", [])},
                 "total_ms": round((time.time() - self.t0) * 1000)}
 
 
 # ============================================================ dispatch
-def dispatch(folder, msg, mode, cassette, mocks, stm):
+def dispatch(folder, msg, mode, cassette, mocks, stm, memory=None):
     defn, diags = load_neop(folder)
     if defn is None:
         return {"state": State.REJECTED.value, "diagnostics": diags,
                 "events": [], "tool_calls": []}
     agent = PiAgent(defn, ModelBroker(mode, cassette),
-                    ToolBroker(mode, mocks, defn["tools"]), MemoryBroker(stm))
+                    ToolBroker(mode, mocks, defn["tools"]),
+                    MemoryBroker(mode, stm, bundle=memory))
     res = agent.run(msg)
     res["diagnostics"] = diags  # warnings surface even on success
     return res

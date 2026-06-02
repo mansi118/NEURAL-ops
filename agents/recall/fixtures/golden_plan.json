@@ -1,0 +1,5 @@
+{
+  "tasks": [
+    { "task_id": "answer", "tool": "ground_tool", "depends_on": [] }
+  ]
+}

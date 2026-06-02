@@ -1,0 +1,3 @@
+{
+  "ground_tool": { "$reflect_field": "text" }
+}

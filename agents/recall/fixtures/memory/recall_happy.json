@@ -1,0 +1,10 @@
+{
+  "chunks": [
+    { "id": "c1", "tenant": "neuraledge", "text": "NeuralEDGE uses AWS Bedrock Titan v2 (1024d) for PALACE embeddings", "score": 0.82, "category": "fact", "created_at": 1700000000, "source_adapter": "claude-export", "confidence": 0.7 },
+    { "id": "c2", "tenant": "neuraledge", "text": "Convex is the memory system-of-record; FalkorDB is advisory", "score": 0.74, "category": "fact", "created_at": 1700000100, "source_adapter": "mcp", "confidence": 0.6 }
+  ],
+  "provenance": [
+    { "id": "c1", "source_adapter": "claude-export", "source_ref": "conv-12", "author_type": "human", "author_id": "ml", "created_at": 1700000000 },
+    { "id": "c2", "source_adapter": "mcp", "source_ref": "audit-3", "author_type": "neop", "author_id": "aria", "created_at": 1700000100 }
+  ]
+}

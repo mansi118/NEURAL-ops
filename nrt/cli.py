@@ -58,6 +58,15 @@ def assert_case(result, expect, golden):
         fails.append(f"replans {result['replans']} > {expect['max_replans']}")
     if "max_latency_s" in expect and result.get("total_ms", 0) > expect["max_latency_s"] * 1000:
         fails.append(f"latency {result['total_ms']}ms > {expect['max_latency_s']}s")
+    mem = result.get("memory", {})
+    if "memory_chunk_ids" in expect:
+        got = sorted(mem.get("retrieved", []))
+        if got != sorted(expect["memory_chunk_ids"]):
+            fails.append(f"memory chunks {got} != {sorted(expect['memory_chunk_ids'])}")
+    if "memory_wrote" in expect:
+        wrote = len(mem.get("written", [])) > 0
+        if wrote != expect["memory_wrote"]:
+            fails.append(f"memory_wrote {wrote} != {expect['memory_wrote']}")
     return fails
 
 
@@ -65,7 +74,8 @@ def run_case(agent, case, mode):
     fx = agent / "fixtures"
     cas = load_json(fx / "cassettes" / f"{case['case_id']}.json", {}) or {}
     mocks = load_json(fx / "mocks" / "tools.json", {}) or {}
-    result = dispatch(agent, case["input"], mode, cas, mocks, case.get("stm", []))
+    mem = load_json(fx / "memory" / f"{case['case_id']}.json", None)  # recorded memory bundle (unit)
+    result = dispatch(agent, case["input"], mode, cas, mocks, case.get("stm", []), memory=mem)
     expect = case.get("expect", {})
     golden = load_json(fx / expect["golden_plan"]) if expect.get("golden_plan") else None
     return result, assert_case(result, expect, golden)

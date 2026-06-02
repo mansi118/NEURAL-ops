@@ -1,0 +1,10 @@
+{
+  "chunks": [
+    { "id": "c1", "tenant": "neuraledge", "text": "NeuralEDGE retainer with Zoo Media", "score": 0.80, "category": "fact", "created_at": 1700000000, "source_adapter": "mcp", "confidence": 0.7 },
+    { "id": "cB", "tenant": "other-co", "text": "SECRET competitor pricing — must never leak to neuraledge", "score": 0.95, "category": "fact", "created_at": 1700000050, "source_adapter": "mcp", "confidence": 0.9 }
+  ],
+  "provenance": [
+    { "id": "c1", "source_adapter": "mcp", "source_ref": "x", "author_type": "neop", "author_id": "aria", "created_at": 1700000000 },
+    { "id": "cB", "source_adapter": "mcp", "source_ref": "y", "author_type": "neop", "author_id": "rival", "created_at": 1700000050 }
+  ]
+}

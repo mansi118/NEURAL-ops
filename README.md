@@ -27,6 +27,7 @@ host; a Pi-agent = a running NEop session; planner/executor/verifier = Pi-subage
 ```
 runtime/core.py        Phase/State machine, diagnostics loader, brokers, PiAgent, dispatch()
 runtime/aws.py         Read-only boto3 tool registry (live integration-mode AWS tools)
+runtime/memory.py      Live MemPalace client (facade over Convex /mcp); integration-mode memory
 nrt/cli.py             NEOS Runtime Tester (validate | test | trace | suite | golden)
 agents/<id>/
   neop.md              Frontmatter (neop_id, version, limits, role_family, tools, model, acp) + role prose
@@ -47,6 +48,30 @@ agents/<id>/
 - **aws-probe** (`role_family: executor`) — read-only AWS; calls `sts_whoami`, publishes caller identity.
 - **recon** (`role_family: sales`) — first real-work NEop; 3-task DAG `search_leads → enrich_lead → dedupe`
   with `depends_on` edges, output threaded forward. Exercises the DAG executor and bounded-replan path.
+- **recall** (`role_family: meta`, `memory: {read, write}`) — first memory-aware NEop; retrieves in
+  `assemble`, grounds output in chunks, writes provenance-stamped memory on `run_end`.
+
+## Memory (P3)
+
+Memory is the **third deterministic seam** (after model + tool brokers). A NEop opts in via
+frontmatter `memory: {read, write}`; the runtime then retrieves in `assemble` (folds chunks into
+the bundle, emits `memory_retrieve`) and writes + consolidates on `run_end` (emits `memory_write`).
+The `MemoryBroker` contract is backend-agnostic:
+
+```
+retrieve(tenant, seat, query, tiers={}, k=5) -> {chunks, provenance}
+write(tenant, seat, record) -> {status, closet_id, dedup_key}   # broker stamps provenance
+consolidate(tenant, seat)                                        # STM→LTM hook (stub body, real call)
+```
+
+- **unit** mode → recorded bundles in `fixtures/memory/<case>.json`; no network. Deterministic.
+- **integration** mode → live **MemPalace** via `runtime/memory.py` (lazy, gated on `CONVEX_SITE_URL`
+  + `AWS_BEARER_TOKEN_BEDROCK`). MemPalace = facade over Convex (system-of-record + 1024-d Titan
+  vectors); FalkorDB advisory. **`tiers` has no MemPalace equivalent → accepted as advisory no-op.**
+- **Tenant guard** inside the broker: a seat in tenant A never sees tenant B's chunks (proven by the
+  `recall_isolation` fixture). Identity is `tenant=palaceId` + `seat=neopId`.
+- Deferred: RRF/BM25/graph/recency fusion, Vault promotion, nightly consolidation cron, embed
+  migration, and the **live integration smoke** (needs creds + hits the prod `neuraledge` palace).
 
 ## Mock keying (P2 decision)
 
@@ -91,5 +116,9 @@ python3 nrt/cli.py suite    agents                         # CI entrypoint: ever
   `recon` sales NEop; happy→DONE and replan-exhaustion→ESCALATED green. Deferred: the
   recover-via-replan fixture (DONE via REPLANNING) needs per-attempt cassette keys —
   that's the `nrt golden --record` increment, not bootstrap-tolerance.
-- P3 — real MemoryBroker over MemPalace (unit=recorded bundles / integration=live) +
-  consumer NEop. Trace MemPalace surface first.
+- **P3 (Memory) — done.** MemoryBroker (3rd seam) over MemPalace: unit=recorded bundles,
+  integration=live Convex `/mcp` (gated); `assemble` folds chunks, `run_end` writes +
+  consolidates, `memory_retrieve`/`memory_write` events; tenant guard proven; `recall`
+  consumer NEop green. Live smoke deferred (creds + prod palace).
+- P4 — twin v0 + Interviewer + Decision Shadow (uses this memory contract).
+- P5 — front door (nc-gateway + nc-orchestrator above `dispatch()`).
