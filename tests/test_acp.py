@@ -11,7 +11,7 @@ from acp.chain import run_chain                # noqa: E402
 from acp.capabilities import build_registry    # noqa: E402
 
 REG = build_registry(str(R / "agents"))
-RING = E.keyring(["coordinator", "recon", "researcher", "proposal-writer", "echo"])
+RING = E.keyring(["coordinator", "recon", "researcher", "proposal-writer", "cortex", "echo"])
 AG = str(R / "agents")
 
 
@@ -76,6 +76,22 @@ def test_chain():
     ref = run_chain(caps, "x", Router(REG, RING, agents_root=AG), RING, explicit_intent=False)
     assert ref["status"] == "refused" and "COC-5" in ref["reason"], ref  # COC-5 gate
     print("PASS test_chain")
+
+
+def test_cross_hop_identity_semantic():
+    # THE PIN across a delegation: A (coordinator) delegates to B (cortex). B must run
+    # under its OWN seat — its memory keys on cortex, NOT the coordinator. A rides as requester.
+    rt = Router(REG, RING, agents_root=AG)
+    r = rt.route(_delegate("coordinator", "cortex", "cortex_answer", {"text": "what embeddings"}))
+    assert r["intent"] == "inform", r
+    assert r["payload"]["seat"] == "cortex", r                       # B ran under its own seat
+    assert r["payload"]["requester"] == "coordinator", r            # A rides as attribution only
+    assert r["payload"]["memory_authors"] == ["cortex"], r          # memory keyed on B...
+    assert "coordinator" not in r["payload"]["memory_authors"], r    # ...NOT on A (no cross-wire)
+    # refuse is a structured, signed envelope (not an exception)
+    bad = rt.route(_delegate("coordinator", "x", "nonesuch", {"text": "x"}))
+    assert bad["intent"] == "refuse" and bad["acp_version"] == "1.0" and bad["envelope_id"], bad
+    print("PASS test_cross_hop_identity_semantic")
 
 
 if __name__ == "__main__":

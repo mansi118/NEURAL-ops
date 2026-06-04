@@ -73,9 +73,11 @@ class Router:
         msg = {"text": env["payload"].get("text", ""), "tenant": tenant, "seat": target, "requester": sender}
         cas, mocks, mem, twin = self.backing(folder)
         result = dispatch(folder, msg, "unit", cas, mocks, [], memory=mem, twin=twin)
+        authors = sorted({w["provenance"]["author_id"] for w in result.get("memory", {}).get("written", [])})
         inform = E.build(frm={"tenant": tenant, "actor": target, "type": "neop"}, to=env["from"],
                          intent="inform", capability_required=cap,
-                         payload={"state": result["state"], "outputs": result["outputs"], "neop": target},
+                         payload={"state": result["state"], "outputs": result["outputs"], "neop": target,
+                                  "seat": target, "requester": sender, "memory_authors": authors},
                          conversation_id=env["conversation_id"], parent=env["envelope_id"],
                          hop_count=env.get("hop_count", 0) + 1)
         return E.sign(inform, self.ring[target][0])

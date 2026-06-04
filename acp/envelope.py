@@ -32,12 +32,14 @@ def _idem(conversation_id, to, capability, payload):
 
 
 def build(frm, to, intent, capability_required, payload, *,
-          conversation_id, parent=None, hop_count=0, scope=None):
+          conversation_id, parent=None, hop_count=0, scope=None, ts="1970-01-01T00:00:00Z"):
+    # ts + envelope_id are SEEDED (not wall-clock/random) so the Ed25519 signature and
+    # idempotency_key are stable across runs — the ACP analog of cassette hash-stability.
     assert intent in INTENTS, f"bad intent {intent}"
     return {
         "acp_version": "1.0",
         "envelope_id": f"env_{conversation_id}_{hop_count}_{to.get('actor')}_{intent}",
-        "conversation_id": conversation_id,
+        "conversation_id": conversation_id, "ts": ts,
         "from": frm, "to": to, "intent": intent,
         "capability_required": capability_required, "scope": scope or [],
         "payload": payload, "hop_count": hop_count, "max_hops": MAX_HOPS,
