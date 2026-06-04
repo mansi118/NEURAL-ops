@@ -33,8 +33,9 @@ def _need(key: str) -> str:
 
 
 def _post(tool: str, palace_id: str, neop_id: str, params: dict) -> dict:
-    base = _need("CONVEX_SITE_URL").rstrip("/")
-    _need("AWS_BEARER_TOKEN_BEDROCK")  # embeddings gate (server-side); presence-checked here
+    # Targets Mempalace_NEOS (Convex SoT + Voyage embeddings). Embeddings/Voyage are
+    # server-side in Convex, so the client only needs the Convex URL — no embedding key.
+    base = (os.environ.get("CONVEX_DEPLOYMENT_URL") or _need("CONVEX_SITE_URL")).rstrip("/")
     body = json.dumps({"tool": tool, "palaceId": palace_id, "neopId": neop_id, "params": params}).encode()
     req = urllib.request.Request(
         f"{base}/mcp", data=body,
