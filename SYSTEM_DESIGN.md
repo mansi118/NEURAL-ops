@@ -196,8 +196,9 @@ writes stamp `source_adapter / source_external_id / author_*`; the ACP audit log
 | **Live classifier verdict** | ⛔ gated (Anthropic key / Bedrock use-case form) |
 | **Live `palace_search` read smoke** | ⛔ gated (Convex creds + go-ahead) |
 | **Twin live get/put** — `palace_get_closet` in Mempalace_NEOS | ⬜ queued (cross-repo) |
-| **Vault promotion (Flow 4)** — VL-1 confidence · VL-2 PII redact · VL-3 provenance · VL-4 approval queue · VL-5 rollback-armed | ⬜ traced, next build |
-| Fidelity clock / Twin Curator · automation flywheel · RRF retrieval · multi-tenant ACL · DAG chains | ⬜ deferred (on demand) |
+| **Vault promotion (Flow 4)** — VL-1 confidence · VL-2 PII redact · VL-3 provenance · VL-4 approval queue · VL-5 rollback-armed | ✅ green (offline; layer over broker writes, core untouched) |
+| Twin Curator / fidelity clock (Flow 6) — seed→growing→mature via corroborated signals | ⬜ traced, next build |
+| Automation flywheel (Flow 8) · RRF retrieval · multi-tenant ACL · DAG chains | ⬜ deferred (on demand) |
 
 Everything ✅ is offline-green and pushed to `origin/main`. Everything ⛔ waits only on a
 credential/account action; everything ⬜ is agent-buildable on demand.
