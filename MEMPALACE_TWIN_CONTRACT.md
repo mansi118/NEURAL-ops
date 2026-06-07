@@ -58,6 +58,10 @@ prior value. Response:
   (both read vN) and the later `put` silently clobbers the earlier vN+1. Closing that needs a
   server-side conditional upsert (write iff stored version == base_version) — move the gate
   server-side then, do NOT split it across both.
+  **The trigger is an EVENT, not a date:** today the Twin Curator is the sole twin writer. The
+  assumption breaks the moment (a) the automation flywheel (C2) goes from spec-only to auto-spawn,
+  or (b) any NEop starts writing twin deltas in parallel — broker-side CAS can't see writes it
+  didn't originate. Keep the flywheel human-gated and single-writer holds. Watch for that event.
 - **Tenant isolation**: `palaceId` scopes the closet; seat A in tenant X never reads tenant Y.
 - **`twin::` excluded from `palace_search`** so twins never leak into retrieval grounding.
 
