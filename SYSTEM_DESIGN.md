@@ -199,7 +199,7 @@ writes stamp `source_adapter / source_external_id / author_*`; the ACP audit log
 | **Vault promotion (Flow 4)** — VL-1 confidence · VL-2 PII redact · VL-3 provenance · VL-4 approval queue · VL-5 rollback (arm **+ reverse**) | ✅ green (offline; layer over broker writes, core untouched; `rollback()` retracts within 30d TTL) |
 | Twin Curator / fidelity clock (Flow 6) — seed→growing→mature via corroborated signals | ✅ green (offline; 5 gates incl. holds, injected clock = deterministic, core untouched) |
 | **Automation flywheel (Flow 8)** — FW-1 recurrence · FW-2 success-bias · FW-3 novelty · FW-4 approval queue · FW-5 spec-only (no auto-spawn) | ✅ green (offline; observe→surface→approve→NEop-spec, conservative bias, core untouched) |
-| **RRF / hybrid retrieval (Phase D)** — fuse vector + lexical rankings via Reciprocal Rank Fusion | ✅ green (offline; pure `runtime/retrieval.py`, wired into live `memory.retrieve`, core untouched) |
+| **RRF fusion (S2 §2.5 / Phase D)** — `score=Σ 1/(rrf_k+rank)`, k0≈60, un-weighted | ✅ green (offline; pure `runtime/rrf.py` fuse/fuse_results, 5 gates incl. negatives, fixtures in `fixtures/rrf/`, wired into live `memory.retrieve` single-list=identity; 4-backend fan-out server-side, deferred to live; core untouched) |
 | multi-tenant ACL · DAG chains | ⬜ deferred (on demand) |
 
 Everything ✅ is offline-green and pushed to `origin/main`. Everything ⛔ waits only on a

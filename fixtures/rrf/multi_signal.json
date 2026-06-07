@@ -1,0 +1,25 @@
+{
+  "_comment": "Recorded 4-channel retrieval (vector·bm25·graph·recency) for offline RRF grading. No network. Hand-computed expected_scores with rrf_k=60.",
+  "query": "embedding model",
+  "rrf_k": 60,
+  "signals": [
+    [
+      {"id": "c1", "text": "voyage embedding model", "provenance": {"id": "c1", "source_adapter": "mcp", "created_at": 1700000001}},
+      {"id": "c2", "text": "the model dimensions",   "provenance": {"id": "c2", "source_adapter": "mcp", "created_at": 1700000002}},
+      {"id": "c3", "text": "zoo media retainer",      "provenance": {"id": "c3", "source_adapter": "mcp", "created_at": 1700000003}}
+    ],
+    [
+      {"id": "c2", "text": "the model dimensions"},
+      {"id": "c1", "text": "voyage embedding model"}
+    ],
+    [
+      {"id": "c2", "text": "the model dimensions"}
+    ],
+    [
+      {"id": "c4", "text": "recent note", "provenance": {"id": "c4", "source_adapter": "mcp", "created_at": 1700000099}},
+      {"id": "c1", "text": "voyage embedding model"}
+    ]
+  ],
+  "expected_order": ["c2", "c1", "c4", "c3"],
+  "expected_scores": {"c2": 0.048916, "c1": 0.048652, "c4": 0.016393, "c3": 0.015873}
+}

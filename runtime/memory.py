@@ -47,31 +47,35 @@ def _post(tool: str, palace_id: str, neop_id: str, params: dict) -> dict:
 
 
 def retrieve(tenant, seat, query, k=5, wing=None, category=None, similarity_floor=0.35,
-             rrf=True, rrf_weights=None):
-    """palace_search -> {chunks, provenance}. Backend returns a vector ranking; when rrf=True we
-    RRF-fuse it with a client-side lexical re-rank of the same candidates (hybrid search). The
-    fusion is pure (runtime.retrieval) + offline-tested; provenance is re-aligned to fused order."""
+             rrf=True, rrf_k=60):
+    """palace_search -> {chunks, provenance} (P-1). Today the backend returns ONE ranked list
+    (server-side vector + graph boost); we run it through the RRF primitive (single list =
+    identity, so behaviour is unchanged until more channels arrive). The S2 §2.5 four-backend
+    fan-out (vector·BM25·graph·recency) lives server-side and is DEFERRED to the live session —
+    when present, append each channel's list to `signal_lists` and rrf.fuse_results merges them.
+    Contract unchanged; provenance retained per chunk + aligned to fused order."""
     params = {"query": query, "limit": k, "similarityFloor": similarity_floor}
     if wing:
         params["wingFilter"] = wing
     if category:
         params["categoryFilter"] = category
     resp = _post("palace_search", tenant, seat, params)
-    results = resp.get("results", [])
-    chunks = [{
+    vector = [{
         "id": r.get("closetId"), "tenant": tenant, "text": r.get("content"),
         "score": r.get("score"), "category": r.get("category"), "wing": r.get("wingName"),
         "created_at": r.get("createdAt"), "source_adapter": r.get("sourceAdapter"),
         "confidence": r.get("confidence"),
-    } for r in results]
-    if rrf and len(chunks) > 1:
-        from runtime.retrieval import hybrid_rank
-        chunks = hybrid_rank(query, chunks, weights=rrf_weights)
-    prov_by_id = {r.get("closetId"): {
-        "id": r.get("closetId"), "source_adapter": r.get("sourceAdapter"),
-        "created_at": r.get("createdAt"),
-    } for r in results}
-    prov = [prov_by_id[c["id"]] for c in chunks if c["id"] in prov_by_id]   # follow fused order
+        "provenance": {"id": r.get("closetId"), "source_adapter": r.get("sourceAdapter"),
+                       "created_at": r.get("createdAt")},
+    } for r in resp.get("results", [])]
+    signal_lists = [vector]   # DEFERRED (live session): + bm25, graph multi-hop, recency channels
+    if rrf:
+        from runtime.rrf import fuse_results
+        fused = fuse_results(signal_lists, k=k, rrf_k=rrf_k)
+        chunks, prov = fused["chunks"], [p for p in fused["provenance"] if p]
+    else:
+        chunks = vector[:k]
+        prov = [c["provenance"] for c in chunks if c.get("provenance")]
     return {"chunks": chunks, "provenance": prov,
             "confidence": resp.get("confidence"), "reason": resp.get("reason")}
 
