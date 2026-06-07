@@ -47,9 +47,17 @@ prior value. Response:
     { "status": "ok", "closetId": "twin::<seat>" }
 
 ## Invariants the server must hold
+- **Version ownership = the BROKER, singly.** Versioning + stale-base rejection are enforced
+  client-side in `MemoryBroker.put_twin` (`base_version` optimistic-concurrency check → rejects
+  `stale_base_version`). The server does NOT version-check — it is a dumb durable store. One
+  owner by design: no server-side compare-and-set, so no double-gate or two-checker race.
 - **Upsert, not append**: `put` twice for the same `(palaceId, neopId)` ⇒ one row, latest wins.
-  (Versioning + stale-base rejection are enforced client-side in `MemoryBroker.put_twin`; the
-  server is the durable store.)
+  ⚠️ **"latest wins" is a blind upsert, not a CAS.** It is correct ONLY under **single-writer
+  per twin** — which holds today (the Twin Curator writes one pass per cadence). If concurrent
+  writers to the same twin are ever introduced, two brokers can both pass their stale-base check
+  (both read vN) and the later `put` silently clobbers the earlier vN+1. Closing that needs a
+  server-side conditional upsert (write iff stored version == base_version) — move the gate
+  server-side then, do NOT split it across both.
 - **Tenant isolation**: `palaceId` scopes the closet; seat A in tenant X never reads tenant Y.
 - **`twin::` excluded from `palace_search`** so twins never leak into retrieval grounding.
 

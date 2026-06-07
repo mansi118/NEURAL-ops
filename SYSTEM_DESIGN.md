@@ -193,7 +193,7 @@ writes stamp `source_adapter / source_external_id / author_*`; the ACP audit log
 | Memory+twin default posture + scaffold generator | ✅ green |
 | ACP composition — signed router + Recon→Researcher→Proposal chain (Flow 7) | ✅ green |
 | Memory adapter pointed at Mempalace_NEOS (Convex + Voyage) | ✅ adapter aligned |
-| **Live classifier verdict** | ✅ PROVEN (2026-06-07, Gemini 2.5-flash): recorded fixtures match live 4/4, all ≥0.7 gate — mock/live boundary holds |
+| **Live classifier verdict** | ✅ PROVEN (2026-06-07, Gemini 2.5-flash): recorded fixtures match live 4/4, all ≥0.7 gate — mock/live boundary holds. ⚠️ OPEN: proves the SEAM, not the production-model lock — re-grade fixtures against whatever model COC ships with |
 | **Live `palace_search` read smoke** | ⛔ gated (Convex creds + go-ahead) |
 | **Twin live get/put** — `palace_get_closet` (read-by-id) + `palace_put_closet` (write-by-id) | 🟡 client green (offline; marshalling pure, live calls gated) · server spec'd (`MEMPALACE_TWIN_CONTRACT.md`) · ⛔ smoke gated (Convex creds, joint w/ A2) |
 | **Vault promotion (Flow 4)** — VL-1 confidence · VL-2 PII redact · VL-3 provenance · VL-4 approval queue · VL-5 rollback (arm **+ reverse**) | ✅ green (offline; layer over broker writes, core untouched; `rollback()` retracts within 30d TTL) |
