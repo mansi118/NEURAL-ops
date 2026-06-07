@@ -1,50 +1,51 @@
 # Mempalace_NEOS — twin server contract (Phase B)
 
-The NEOS twin client (`runtime/memory.py`) is wired and offline-green. To run the live twin
-smoke it needs two server-side `/mcp` tools in **Mempalace_NEOS** (Convex SoT). They do **not**
-exist yet — this is the spec to implement there. A twin is *addressed*, not searched: one record
-per `(palaceId, neopId)` fetched/upserted by a deterministic `closetId`, never via `palace_search`.
+The NEOS twin client (`runtime/memory.py`) and the server handlers are **both implemented**
+(server side staged in the `Mempalace_NEOS` clone, NOT yet pushed). A twin is *addressed*, not
+searched: one record per `(palaceId, neopId)` in a dedicated **`twins` table**, fetched/written
+by address — never embedded, never vector-indexed, never returned by `palace_search`.
 
-> Cross-repo. Implement in `mansi118/Mempalace_NEOS`, **confirm before pushing** (outward-facing).
-> Until then the client's live calls stay credential-gated and refuse (proven by
-> `tests/test_memory_twin.py::test_live_path_is_credential_gated`).
+> **Design correction (trace-driven):** the earlier draft stored the twin "as a closet" keyed
+> `twin::<seat>`. Reading the real schema showed `closets` are embedded, searchable, append-only
+> memory units in the room→wing hierarchy — exactly what a twin must NOT be. Corrected to a
+> dedicated `twins` table + `palace_get_twin`/`palace_put_twin`. (Tool names changed from
+> `palace_get_closet`/`palace_put_closet`.)
 
-## closetId convention
-The client addresses a seat's twin at:
+> Cross-repo. Staged in `mansi118/Mempalace_NEOS`, **confirm before pushing** (outward-facing) and
+> before `convex deploy`. Until deployed, the client's live calls stay credential-gated and refuse
+> (proven by `tests/test_memory_twin.py::test_live_path_is_credential_gated`).
 
-    closetId = "twin::" + neopId        # e.g. "twin::aria"  (TWIN_NS = "twin")
+## MCP envelope (all tools)
+The `/mcp` dispatcher wraps every handler result: `{ "status": "ok", "data": <result> }` on
+success, `{ "status": "error", "error": "<msg>" }` on failure. The client's `_post` unwraps
+`data` and raises `MemPalaceError` on `error`. `neopId` (= seat) rides the envelope, so the twin
+tools need no id param. `(palaceId, neopId)` = `(tenant, seat)`.
 
-The `twin::` namespace is reserved — a twin closet must never collide with a memory closet and
-must be excluded from `palace_search` results (it is structured state, not retrievable context).
+## Server pieces (staged in the clone)
+- `convex/schema.ts` — `twins` table: `{palaceId, neopId, doc, version, maturity, updatedAt}`,
+  index `by_palace_neop`. `doc` = serialized twin JSON (broker owns the schema).
+- `convex/palace/twins.ts` — `getTwin` query + `putTwin` mutation.
+- `convex/http.ts` — `palace_get_twin` / `palace_put_twin` cases in the dispatch switch.
+- `convex/access/enforce.ts` — `palace_get_twin → recall`, `palace_put_twin → remember`.
 
-## Tool 1 — `palace_get_closet` (read-by-id)
-Request body (same envelope as the other tools):
+## Tool 1 — `palace_get_twin` (read-by-address)
+    { "tool": "palace_get_twin", "palaceId": "<tenant>", "neopId": "<seat>", "params": {} }
 
-    { "tool": "palace_get_closet", "palaceId": "<tenant>", "neopId": "<seat>",
-      "params": { "closetId": "twin::<seat>" } }
+Handler returns (becomes `data`):
 
-Response — the client reads `resp.closet` (falls back to `resp.result`):
+    { "twin": { ...twin object... }, "version": N, "maturity": "...", "updatedAt": ms }
+    # OR  { "twin": null }   when no twin exists for that seat -> client returns None
 
-    { "closet": { "twin": { ...twin object... } } }     # preferred: structured field
-    # OR  { "closet": { "content": "<JSON string of twin>" } }   # accepted: JSON mirror
-    # OR  { "closet": null }                              # not found -> client returns None
+## Tool 2 — `palace_put_twin` (blind upsert, latest wins)
+Upsert by `(palaceId, neopId)` — one row per seat, latest wins. **NO server-side version check**
+(the broker already enforced stale-base; see invariants). Request:
 
-Either shape works — `twin_from_closet()` prefers the structured `twin` field, else parses
-`content` as JSON, else returns `None`. Missing/empty closet ⇒ `None` (a seat with no twin yet).
+    { "tool": "palace_put_twin", "palaceId": "<tenant>", "neopId": "<seat>",
+      "params": { "doc": "<JSON string of twin, sort_keys>", "version": N, "maturity": "..." } }
 
-## Tool 2 — `palace_put_closet` (write-by-id, upsert)
-**Upsert by `closetId`** — NOT content-dedup (twins mutate in place; a new version must
-overwrite the same row, not create a second closet). Request:
+Handler returns (becomes `data`):
 
-    { "tool": "palace_put_closet", "palaceId": "<tenant>", "neopId": "<seat>",
-      "params": { "closetId": "twin::<seat>", "category": "twin",
-                  "twin": { ...twin object... },
-                  "content": "<JSON string of twin, sort_keys>" } }
-
-Store the structured `twin` (and/or the `content` mirror) at that `closetId`, overwriting any
-prior value. Response:
-
-    { "status": "ok", "closetId": "twin::<seat>" }
+    { "status": "ok", "twinId": "<convex id>", "version": N, "upsert": "insert"|"update" }
 
 ## Invariants the server must hold
 - **Version ownership = the BROKER, singly.** Versioning + stale-base rejection are enforced

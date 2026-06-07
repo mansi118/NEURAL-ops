@@ -19,7 +19,7 @@ from __future__ import annotations
 import os, json, urllib.request
 
 __all__ = ["MemPalaceError", "retrieve", "write", "get_twin", "put_twin",
-           "twin_closet_id", "twin_from_closet", "twin_put_params"]
+           "twin_put_params", "twin_from_response"]
 
 
 class MemPalaceError(RuntimeError):
@@ -43,7 +43,15 @@ def _post(tool: str, palace_id: str, neop_id: str, params: dict) -> dict:
         headers={"Content-Type": "application/json", "X-Palace-Neop": neop_id},
     )
     with urllib.request.urlopen(req, timeout=20) as r:  # noqa: S310 (trusted internal endpoint)
-        return json.loads(r.read().decode())
+        resp = json.loads(r.read().decode())
+    # Server envelope is {status:"ok", data:<result>} | {status:"error", error}. Unwrap to the
+    # result so callers see the handler's return value directly (matches convex/http.ts).
+    if isinstance(resp, dict):
+        if resp.get("status") == "error":
+            raise MemPalaceError(f"{tool} failed: {resp.get('error')}")
+        if "data" in resp:
+            return resp["data"]
+    return resp
 
 
 def retrieve(tenant, seat, query, k=5, wing=None, category=None, similarity_floor=0.35,
@@ -91,51 +99,36 @@ def write(tenant, seat, record):
             "dedup_key": record.get("provenance", {}).get("source_external_id")}
 
 
-# --- twin: structured record, ADDRESSED not searched (Convex SoT) -----------------
-# A twin is not a vector-searchable memory; it's one record per (tenant, seat) fetched/
-# upserted by a deterministic id. So it rides two server tools that the corpus search path
-# doesn't need (see MEMPALACE_TWIN_CONTRACT.md for the Mempalace_NEOS-side spec):
-#     palace_get_closet  {closetId}        -> read-by-id   (NOT palace_search)
-#     palace_put_closet  {closetId, twin}  -> write-by-id  (upsert, NOT content-dedup)
-# The marshalling below is PURE + offline-gradeable; only _post touches the network.
-TWIN_NS = "twin"   # reserved closet namespace; a twin id never collides with a memory closet
+# --- twin: per-seat structured state, ADDRESSED not searched (Convex SoT) ----------
+# A twin is NOT a closet (closets are embedded/searchable memory units). It is one record per
+# (tenant=palaceId, seat=neopId) in a dedicated `twins` table, fetched/written by address via
+# two server tools the corpus-search path never touches (see MEMPALACE_TWIN_CONTRACT.md):
+#     palace_get_twin  {}                          -> read-by-(palaceId,neopId)  (NOT palace_search)
+#     palace_put_twin  {doc, version, maturity}    -> blind upsert; latest wins
+# The broker (MemoryBroker.put_twin) is the SOLE owner of versioning/stale-base — the server does
+# NO version check. Marshalling below is PURE + offline-gradeable; only _post touches the network.
 
 
-def twin_closet_id(seat):
-    """Deterministic address for a seat's twin closet — so write-by-id always upserts the same row."""
-    return f"{TWIN_NS}::{seat}"
+def twin_put_params(twin):
+    """palace_put_twin params: the twin serialized as `doc` (broker owns schema) + denormalized
+    version/maturity for cheap server-side reads. seat (neopId) rides the _post envelope."""
+    return {"doc": json.dumps(twin, sort_keys=True),
+            "version": twin.get("version"), "maturity": twin.get("maturity")}
 
 
-def twin_from_closet(closet):
-    """Parse a twin out of a fetched closet: structured `twin` field, else JSON `content`, else None."""
-    if not closet:
-        return None
-    if isinstance(closet.get("twin"), dict):
-        return closet["twin"]
-    content = closet.get("content")
-    if isinstance(content, str) and content.strip().startswith("{"):
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            return None
-    return None
-
-
-def twin_put_params(seat, twin):
-    """Write-by-id params: structured twin + a JSON mirror in content (survives either store shape)."""
-    return {"closetId": twin_closet_id(seat), "category": TWIN_NS,
-            "twin": twin, "content": json.dumps(twin, sort_keys=True)}
+def twin_from_response(resp):
+    """get_twin response is {twin: <obj>|null, ...}; return the twin dict or None."""
+    t = (resp or {}).get("twin")
+    return t if isinstance(t, dict) else None
 
 
 def get_twin(tenant, seat):
-    """Read-by-id -> twin dict | None. Twins are addressed (closetId), never vector-searched."""
-    resp = _post("palace_get_closet", tenant, seat, {"closetId": twin_closet_id(seat)})
-    return twin_from_closet(resp.get("closet") or resp.get("result"))
+    """Read-by-address -> twin dict | None. Twin is keyed (palaceId, neopId); never searched."""
+    return twin_from_response(_post("palace_get_twin", tenant, seat, {}))
 
 
 def put_twin(tenant, seat, twin):
-    """Write-by-id (upsert the twin closet). Versioning/validation already done by MemoryBroker."""
-    resp = _post("palace_put_closet", tenant, seat, twin_put_params(seat, twin))
-    return {"status": resp.get("status", "ok"), "twin_id": f"{tenant}:{seat}",
-            "version": twin.get("version"), "maturity": twin.get("maturity"),
-            "closet_id": resp.get("closetId") or twin_closet_id(seat)}
+    """Blind upsert (latest wins). Versioning/stale-base already enforced by MemoryBroker.put_twin."""
+    resp = _post("palace_put_twin", tenant, seat, twin_put_params(twin))
+    return {"status": (resp or {}).get("status", "ok"), "twin_id": f"{tenant}:{seat}",
+            "version": twin.get("version"), "maturity": twin.get("maturity")}
