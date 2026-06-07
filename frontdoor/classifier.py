@@ -12,7 +12,7 @@ import os, json, pathlib
 __all__ = ["ClassifierError", "live_classifier", "bedrock_classifier", "gemini_classifier",
            "catalog_from_agents", "BEDROCK_HAIKU", "GEMINI_MODEL"]
 
-GEMINI_MODEL = "gemini-2.0-flash"   # free-tier, fast; ample for a 1-of-N routing decision
+GEMINI_MODEL = "gemini-2.5-flash"   # free-tier model that actually has quota (2.0-flash = limit 0)
 
 # BLOCKER (verified 2026-06-07, acct 071126865245 / user mansi-synlex):
 # Bedrock model *invocation* is blocked account-wide. Converse/InvokeModel return
@@ -49,10 +49,13 @@ def _parse(raw):
 
 
 def _gemini_payload(catalog, text):
-    """PURE: Gemini generateContent body. responseMimeType nudges clean JSON out."""
+    """PURE: Gemini generateContent body. responseMimeType nudges clean JSON; thinkingBudget=0
+    disables 2.5-flash's reasoning pass (else it spends the token budget thinking and returns
+    empty) — routing needs the answer, not a chain of thought."""
     return {"contents": [{"parts": [{"text": _classify_prompt(catalog, text)}]}],
-            "generationConfig": {"temperature": 0, "maxOutputTokens": 120,
-                                 "responseMimeType": "application/json"}}
+            "generationConfig": {"temperature": 0, "maxOutputTokens": 256,
+                                 "responseMimeType": "application/json",
+                                 "thinkingConfig": {"thinkingBudget": 0}}}
 
 
 def _gemini_extract(resp):
@@ -76,14 +79,20 @@ def gemini_classifier(catalog, model_id=None):
         key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not key:
             raise ClassifierError("GEMINI_API_KEY not set — required for the Gemini classifier")
-        import urllib.request  # lazy
+        import urllib.request, urllib.error, time  # lazy
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent"
         req = urllib.request.Request(
             url, data=json.dumps(_gemini_payload(catalog, text)).encode(),
             headers={"Content-Type": "application/json", "x-goog-api-key": key})
-        with urllib.request.urlopen(req, timeout=20) as r:  # noqa: S310
-            resp = json.loads(r.read().decode())
-        return _parse(_gemini_extract(resp))
+        for attempt in range(4):                            # transient 429/503 -> backoff 1,2,4s
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310
+                    return _parse(_gemini_extract(json.loads(r.read().decode())))
+            except urllib.error.HTTPError as e:
+                if e.code in (429, 503) and attempt < 3:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise
     return fn
 
 
