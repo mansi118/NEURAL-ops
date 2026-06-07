@@ -9,7 +9,10 @@ mode decides recorded vs live.
 from __future__ import annotations
 import os, json, pathlib
 
-__all__ = ["ClassifierError", "live_classifier", "bedrock_classifier", "catalog_from_agents"]
+__all__ = ["ClassifierError", "live_classifier", "bedrock_classifier", "gemini_classifier",
+           "catalog_from_agents", "BEDROCK_HAIKU", "GEMINI_MODEL"]
+
+GEMINI_MODEL = "gemini-2.0-flash"   # free-tier, fast; ample for a 1-of-N routing decision
 
 # BLOCKER (verified 2026-06-07, acct 071126865245 / user mansi-synlex):
 # Bedrock model *invocation* is blocked account-wide. Converse/InvokeModel return
@@ -43,6 +46,45 @@ def _parse(raw):
         return str(data["neop"]), float(data["confidence"])
     except (ValueError, KeyError) as e:
         raise ClassifierError(f"unparseable classifier response: {raw!r}") from e
+
+
+def _gemini_payload(catalog, text):
+    """PURE: Gemini generateContent body. responseMimeType nudges clean JSON out."""
+    return {"contents": [{"parts": [{"text": _classify_prompt(catalog, text)}]}],
+            "generationConfig": {"temperature": 0, "maxOutputTokens": 120,
+                                 "responseMimeType": "application/json"}}
+
+
+def _gemini_extract(resp):
+    """PURE: pull the model's text out of a Gemini response (raises if absent)."""
+    cands = resp.get("candidates") or []
+    if not cands:
+        raise ClassifierError(f"gemini: no candidates in response {resp!r}")
+    parts = (cands[0].get("content") or {}).get("parts") or []
+    text = "".join(p.get("text", "") for p in parts)
+    if not text:
+        raise ClassifierError(f"gemini: empty content in response {resp!r}")
+    return text
+
+
+def gemini_classifier(catalog, model_id=None):
+    """fn(text) -> (neop, confidence) via Google Gemini (REST, no SDK). Gated on GEMINI_API_KEY
+    (or GOOGLE_API_KEY). Key rides the x-goog-api-key header — never the URL/query."""
+    model_id = model_id or os.environ.get("GEMINI_MODEL_ID", GEMINI_MODEL)
+
+    def fn(text):
+        key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not key:
+            raise ClassifierError("GEMINI_API_KEY not set — required for the Gemini classifier")
+        import urllib.request  # lazy
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent"
+        req = urllib.request.Request(
+            url, data=json.dumps(_gemini_payload(catalog, text)).encode(),
+            headers={"Content-Type": "application/json", "x-goog-api-key": key})
+        with urllib.request.urlopen(req, timeout=20) as r:  # noqa: S310
+            resp = json.loads(r.read().decode())
+        return _parse(_gemini_extract(resp))
+    return fn
 
 
 def bedrock_classifier(catalog, model_id=BEDROCK_HAIKU, region="ap-south-1"):

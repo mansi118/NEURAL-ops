@@ -13,7 +13,8 @@ import os, sys, pathlib
 R = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(R))
 from frontdoor.classifier import (  # noqa: E402
-    bedrock_classifier, live_classifier, catalog_from_agents, BEDROCK_HAIKU)
+    bedrock_classifier, live_classifier, gemini_classifier,
+    catalog_from_agents, BEDROCK_HAIKU, GEMINI_MODEL)
 
 # Chat-routable destinations (ping/aws-probe/decision-shadow are not user-facing routes).
 ROUTABLE = {"recon", "cortex", "echo", "interviewer"}
@@ -30,8 +31,11 @@ CONF_GATE = 0.7
 
 def main():
     catalog = catalog_from_agents(str(R / "agents"), only=ROUTABLE)
-    # Prefer an Anthropic API key (fastest verdict path); else Bedrock (production parity).
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    # Provider precedence: Gemini (free tier) -> Anthropic API -> Bedrock (prod parity).
+    if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+        model = os.environ.get("GEMINI_MODEL_ID", GEMINI_MODEL)
+        clf, src = gemini_classifier(catalog, model_id=model), f"Gemini {model}"
+    elif os.environ.get("ANTHROPIC_API_KEY"):
         clf, src = live_classifier(catalog), "Anthropic API (claude-haiku)"
     else:
         model = os.environ.get("BEDROCK_MODEL_ID", BEDROCK_HAIKU)
