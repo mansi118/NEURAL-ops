@@ -6,7 +6,7 @@ Run: python3 tests/test_vault.py
 import sys, pathlib
 R = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(R))
-from runtime.vault import promote, promote_all, redact   # noqa: E402
+from runtime.vault import promote, promote_all, redact, rollback   # noqa: E402
 from runtime.core import MemoryBroker                     # noqa: E402
 
 
@@ -55,6 +55,38 @@ def test_vl5_rollback_and_no_repromote():
     again = promote(_rec(approval="promote"), promoted_keys={d["key"]})
     assert again["decision"] == "reject" and "VL-5" in again["reason"], again
     print("PASS test_vl5_rollback_and_no_repromote")
+
+
+def test_vl5_rollback_reverses_within_ttl():
+    # the OTHER half of VL-5: an armed promotion can actually be reversed (was armed-but-inert).
+    p = promote(_rec(approval="promote"), now_ts="2026-01-01T00:00:00Z")["record"]
+    r = rollback(p, now_ts="2026-01-20T00:00:00Z")                 # 19d < 30d TTL
+    assert r["decision"] == "rollback" and r["tombstone"]["key"] == "k1", r
+    assert r["clear_do_not_re_promote"] is True, r
+    print("PASS test_vl5_rollback_reverses_within_ttl")
+
+
+def test_vl5_rollback_refuses():
+    # never promoted -> nothing to roll back
+    nope = rollback(_rec())
+    assert nope["decision"] == "reject" and "nothing to roll back" in nope["reason"], nope
+    # past the 30-day window -> refuse
+    p = promote(_rec(approval="promote"), now_ts="2026-01-01T00:00:00Z")["record"]
+    late = rollback(p, now_ts="2026-03-15T00:00:00Z")             # ~73d > 30d
+    assert late["decision"] == "reject" and "lapsed" in late["reason"], late
+    print("PASS test_vl5_rollback_refuses")
+
+
+def test_vl5_rollback_then_repromote():
+    # round-trip: promote -> blocked by do-not-re-promote -> rollback clears it -> re-promote OK
+    p = promote(_rec(approval="promote"))
+    keys = {p["key"]}
+    assert promote(_rec(approval="promote"), promoted_keys=keys)["decision"] == "reject"   # VL-5 block
+    r = rollback(p["record"], now_ts="2026-01-10T00:00:00Z")
+    if r["clear_do_not_re_promote"]:
+        keys.discard(r["key"])                                    # caller drops the retracted key
+    assert promote(_rec(approval="promote"), promoted_keys=keys)["decision"] == "promote", keys
+    print("PASS test_vl5_rollback_then_repromote")
 
 
 def test_broker_writes_dont_auto_promote():

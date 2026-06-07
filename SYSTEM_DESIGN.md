@@ -195,8 +195,8 @@ writes stamp `source_adapter / source_external_id / author_*`; the ACP audit log
 | Memory adapter pointed at Mempalace_NEOS (Convex + Voyage) | ✅ adapter aligned |
 | **Live classifier verdict** | ⛔ gated (Anthropic key / Bedrock use-case form) |
 | **Live `palace_search` read smoke** | ⛔ gated (Convex creds + go-ahead) |
-| **Twin live get/put** — `palace_get_closet` in Mempalace_NEOS | ⬜ queued (cross-repo) |
-| **Vault promotion (Flow 4)** — VL-1 confidence · VL-2 PII redact · VL-3 provenance · VL-4 approval queue · VL-5 rollback-armed | ✅ green (offline; layer over broker writes, core untouched) |
+| **Twin live get/put** — `palace_get_closet` (read-by-id) + `palace_put_closet` (write-by-id) | 🟡 client green (offline; marshalling pure, live calls gated) · server spec'd (`MEMPALACE_TWIN_CONTRACT.md`) · ⛔ smoke gated (Convex creds, joint w/ A2) |
+| **Vault promotion (Flow 4)** — VL-1 confidence · VL-2 PII redact · VL-3 provenance · VL-4 approval queue · VL-5 rollback (arm **+ reverse**) | ✅ green (offline; layer over broker writes, core untouched; `rollback()` retracts within 30d TTL) |
 | Twin Curator / fidelity clock (Flow 6) — seed→growing→mature via corroborated signals | ✅ green (offline; 5 gates incl. holds, injected clock = deterministic, core untouched) |
 | **Automation flywheel (Flow 8)** — FW-1 recurrence · FW-2 success-bias · FW-3 novelty · FW-4 approval queue · FW-5 spec-only (no auto-spawn) | ✅ green (offline; observe→surface→approve→NEop-spec, conservative bias, core untouched) |
 | RRF retrieval · multi-tenant ACL · DAG chains | ⬜ deferred (on demand) |

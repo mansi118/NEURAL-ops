@@ -18,7 +18,8 @@ tenant -> palaceId (e.g. "neuraledge"); seat -> neopId (e.g. "aria").
 from __future__ import annotations
 import os, json, urllib.request
 
-__all__ = ["MemPalaceError", "retrieve", "write", "get_twin", "put_twin"]
+__all__ = ["MemPalaceError", "retrieve", "write", "get_twin", "put_twin",
+           "twin_closet_id", "twin_from_closet", "twin_put_params"]
 
 
 class MemPalaceError(RuntimeError):
@@ -79,13 +80,51 @@ def write(tenant, seat, record):
             "dedup_key": record.get("provenance", {}).get("source_external_id")}
 
 
-# --- twin (structured record; tool names unverified against live Convex — integration deferred)
+# --- twin: structured record, ADDRESSED not searched (Convex SoT) -----------------
+# A twin is not a vector-searchable memory; it's one record per (tenant, seat) fetched/
+# upserted by a deterministic id. So it rides two server tools that the corpus search path
+# doesn't need (see MEMPALACE_TWIN_CONTRACT.md for the Mempalace_NEOS-side spec):
+#     palace_get_closet  {closetId}        -> read-by-id   (NOT palace_search)
+#     palace_put_closet  {closetId, twin}  -> write-by-id  (upsert, NOT content-dedup)
+# The marshalling below is PURE + offline-gradeable; only _post touches the network.
+TWIN_NS = "twin"   # reserved closet namespace; a twin id never collides with a memory closet
+
+
+def twin_closet_id(seat):
+    """Deterministic address for a seat's twin closet — so write-by-id always upserts the same row."""
+    return f"{TWIN_NS}::{seat}"
+
+
+def twin_from_closet(closet):
+    """Parse a twin out of a fetched closet: structured `twin` field, else JSON `content`, else None."""
+    if not closet:
+        return None
+    if isinstance(closet.get("twin"), dict):
+        return closet["twin"]
+    content = closet.get("content")
+    if isinstance(content, str) and content.strip().startswith("{"):
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def twin_put_params(seat, twin):
+    """Write-by-id params: structured twin + a JSON mirror in content (survives either store shape)."""
+    return {"closetId": twin_closet_id(seat), "category": TWIN_NS,
+            "twin": twin, "content": json.dumps(twin, sort_keys=True)}
+
+
 def get_twin(tenant, seat):
-    resp = _post("twin_get", tenant, seat, {})
-    return resp.get("twin")
+    """Read-by-id -> twin dict | None. Twins are addressed (closetId), never vector-searched."""
+    resp = _post("palace_get_closet", tenant, seat, {"closetId": twin_closet_id(seat)})
+    return twin_from_closet(resp.get("closet") or resp.get("result"))
 
 
 def put_twin(tenant, seat, twin):
-    resp = _post("twin_put", tenant, seat, {"twin": twin})
+    """Write-by-id (upsert the twin closet). Versioning/validation already done by MemoryBroker."""
+    resp = _post("palace_put_closet", tenant, seat, twin_put_params(seat, twin))
     return {"status": resp.get("status", "ok"), "twin_id": f"{tenant}:{seat}",
-            "version": twin.get("version"), "maturity": twin.get("maturity")}
+            "version": twin.get("version"), "maturity": twin.get("maturity"),
+            "closet_id": resp.get("closetId") or twin_closet_id(seat)}

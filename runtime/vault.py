@@ -16,6 +16,7 @@ NOT auto-promote — it must clear every gate, so the palace stays clean.
 """
 from __future__ import annotations
 import re
+from datetime import datetime
 
 # VL-1: per-category confidence floors (conservative defaults).
 CONFIDENCE_FLOORS = {"decision": 0.6, "fact": 0.5, "lesson": 0.5, "run": 0.7, "_default": 0.5}
@@ -106,3 +107,33 @@ def promote_all(records, *, approvals=None, floors=None):
             promoted_keys.add(d["key"])
         out.append(d)
     return out
+
+
+def _parse_ts(ts):
+    """ISO-8601 -> datetime (tolerates a trailing Z). Both timestamps are INJECTED, not wall-clock."""
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+def rollback(record, *, now_ts="2026-01-01T00:00:00Z"):
+    """VL-5 reversal — retract a promoted record within its TTL. Returns a tombstone directive.
+
+    This is the other half of VL-5: promote() *arms* a reversible promotion (rollback_armed +
+    promoted_at + 30d TTL); rollback() is what actually reverses it. The memory layer applies the
+    returned tombstone (retract the durable closet). Reversal CLEARS do_not_re_promote so a
+    corrected version can later be re-promoted — the caller drops `key` from its promoted_keys.
+
+    Conservative refuses: won't roll back something never promoted, or past its 30-day window
+    (or a record whose promoted_at is in the future relative to now_ts — a clock inconsistency).
+    """
+    key = (record.get("provenance", {}) or {}).get("source_external_id") or record.get("dedup_key")
+    if not record.get("rollback_armed"):
+        return {"decision": "reject", "reason": "VL-5 not promoted (nothing to roll back)", "key": key}
+    ttl = record.get("rollback_ttl_days", PROMOTE_TTL_DAYS)
+    promoted_at = record.get("promoted_at")
+    age_days = (_parse_ts(now_ts) - _parse_ts(promoted_at)).days if promoted_at else None
+    if age_days is None or not 0 <= age_days <= ttl:
+        return {"decision": "reject", "key": key,
+                "reason": f"VL-5 rollback window lapsed (age {age_days}d, ttl {ttl}d)"}
+    return {"decision": "rollback", "reason": "retracted within TTL", "key": key,
+            "tombstone": {"key": key, "retracted_at": now_ts, "reverses_promoted_at": promoted_at},
+            "clear_do_not_re_promote": True}
