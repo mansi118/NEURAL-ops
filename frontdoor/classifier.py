@@ -11,10 +11,18 @@ import os, json, pathlib
 
 __all__ = ["ClassifierError", "live_classifier", "bedrock_classifier", "catalog_from_agents"]
 
-# All Anthropic models on Bedrock require this account's one-time "Anthropic use case
-# details" form (submit in the Bedrock console, ap-south-1). Until then, Converse returns
-# ResourceNotFoundException ("use case details have not been submitted"). Once cleared,
-# this default works; set BEDROCK_MODEL_ID to upgrade to 4.5 Haiku
+# BLOCKER (verified 2026-06-07, acct 071126865245 / user mansi-synlex):
+# Bedrock model *invocation* is blocked account-wide. Converse/InvokeModel return
+# 400 ValidationException "Operation not allowed" for EVERY vendor (Anthropic, Amazon
+# Nova, Meta Llama) across ap-south-1 + us-east-1, direct id AND inference profile.
+# It is NOT the Anthropic use-case form (that was the earlier guess): the block is
+# vendor-independent. Diagnosis from the error shape:
+#   - control-plane (ListFoundationModels / inference profiles) WORKS  -> creds valid
+#   - 400 ValidationException, not 403 AccessDenied                    -> IAM allows InvokeModel;
+#                                                                          the service itself refuses
+#   => no model access is enabled at the ACCOUNT level. Fix = Bedrock console (account owner) ->
+#      "Model access" -> request/enable the models (for Anthropic that includes the use-case form).
+# Once cleared this default works; set BEDROCK_MODEL_ID to upgrade to 4.5 Haiku
 # ("global.anthropic.claude-haiku-4-5-20251001-v1:0").
 BEDROCK_HAIKU = "apac.anthropic.claude-3-haiku-20240307-v1:0"
 
