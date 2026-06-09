@@ -13,8 +13,8 @@ import os, sys, pathlib
 R = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(R))
 from frontdoor.classifier import (  # noqa: E402
-    bedrock_classifier, live_classifier, gemini_classifier,
-    catalog_from_agents, BEDROCK_HAIKU, GEMINI_MODEL)
+    bedrock_classifier, live_classifier, gemini_classifier, openrouter_classifier,
+    catalog_from_agents, BEDROCK_HAIKU, GEMINI_MODEL, OPENROUTER_MODEL)
 
 # Chat-routable destinations (ping/aws-probe/decision-shadow are not user-facing routes).
 ROUTABLE = {"recon", "cortex", "echo", "interviewer"}
@@ -31,11 +31,21 @@ CONF_GATE = 0.7
 
 def main():
     catalog = catalog_from_agents(str(R / "agents"), only=ROUTABLE)
-    # Provider precedence: Gemini (free tier) -> Anthropic API -> Bedrock (prod parity).
-    if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+    # Provider selection. CLASSIFIER_PROVIDER forces one (gemini|openrouter|anthropic|bedrock) — use
+    # `openrouter` to grade the recorded fixtures against a Claude-class model (production parity for
+    # the COC production-lock decision). Otherwise auto-precedence: OpenRouter (Claude parity, no
+    # Bedrock block) -> Gemini (free tier, seam-proven) -> Anthropic API -> Bedrock.
+    forced = os.environ.get("CLASSIFIER_PROVIDER", "").strip().lower()
+    has_or = bool(os.environ.get("OPENROUTER_API_KEY"))
+    has_gem = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+    has_ant = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    if forced == "openrouter" or (not forced and has_or):
+        model = os.environ.get("OPENROUTER_MODEL_ID", OPENROUTER_MODEL)
+        clf, src = openrouter_classifier(catalog, model_id=model), f"OpenRouter {model}"
+    elif forced == "gemini" or (not forced and has_gem):
         model = os.environ.get("GEMINI_MODEL_ID", GEMINI_MODEL)
         clf, src = gemini_classifier(catalog, model_id=model), f"Gemini {model}"
-    elif os.environ.get("ANTHROPIC_API_KEY"):
+    elif forced == "anthropic" or (not forced and has_ant):
         clf, src = live_classifier(catalog), "Anthropic API (claude-haiku)"
     else:
         model = os.environ.get("BEDROCK_MODEL_ID", BEDROCK_HAIKU)

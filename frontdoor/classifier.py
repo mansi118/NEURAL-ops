@@ -10,9 +10,17 @@ from __future__ import annotations
 import os, json, pathlib
 
 __all__ = ["ClassifierError", "live_classifier", "bedrock_classifier", "gemini_classifier",
-           "catalog_from_agents", "BEDROCK_HAIKU", "GEMINI_MODEL"]
+           "openrouter_classifier", "catalog_from_agents", "BEDROCK_HAIKU", "GEMINI_MODEL",
+           "OPENROUTER_MODEL"]
 
 GEMINI_MODEL = "gemini-2.5-flash"   # free-tier model that actually has quota (2.0-flash = limit 0)
+
+# OpenRouter routes to a Claude-class model WITHOUT the account-wide Bedrock block (see below).
+# This is the production-parity classifier path: COC is Claude-based, so proving the recorded-vs-live
+# seam against a Haiku-class Claude here closes the open production-lock question that Gemini (a
+# different model family) can only prove for the SEAM, not for the shipping model. Overridable via
+# OPENROUTER_MODEL_ID (e.g. "anthropic/claude-haiku-4.5" once confirmed live on the gateway).
+OPENROUTER_MODEL = "anthropic/claude-3.5-haiku"
 
 # BLOCKER (verified 2026-06-07, acct 071126865245 / user mansi-synlex):
 # Bedrock model *invocation* is blocked account-wide. Converse/InvokeModel return
@@ -90,6 +98,53 @@ def gemini_classifier(catalog, model_id=None):
                     return _parse(_gemini_extract(json.loads(r.read().decode())))
             except urllib.error.HTTPError as e:
                 if e.code in (429, 503) and attempt < 3:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise
+    return fn
+
+
+def _openrouter_payload(catalog, text, model_id):
+    """PURE: OpenRouter chat/completions body (OpenAI-compatible). No response_format — that's
+    model-specific on the gateway and would error on backends that don't honor it; _parse already
+    tolerates surrounding prose, so we lean on that instead. temperature=0 for determinism."""
+    return {"model": model_id,
+            "messages": [{"role": "user", "content": _classify_prompt(catalog, text)}],
+            "max_tokens": 256, "temperature": 0}
+
+
+def _openrouter_extract(resp):
+    """PURE: pull the model's text out of an OpenRouter (OpenAI-shaped) response (raises if absent)."""
+    choices = resp.get("choices") or []
+    if not choices:
+        raise ClassifierError(f"openrouter: no choices in response {resp!r}")
+    text = (choices[0].get("message") or {}).get("content") or ""
+    if not text:
+        raise ClassifierError(f"openrouter: empty content in response {resp!r}")
+    return text
+
+
+def openrouter_classifier(catalog, model_id=None):
+    """fn(text) -> (neop, confidence) via OpenRouter (REST, no SDK). Gated on OPENROUTER_API_KEY.
+    Key rides the Authorization: Bearer header — never the URL/query. Routes to a Claude-class model
+    by default, sidestepping the account-wide Bedrock block."""
+    model_id = model_id or os.environ.get("OPENROUTER_MODEL_ID", OPENROUTER_MODEL)
+
+    def fn(text):
+        key = os.environ.get("OPENROUTER_API_KEY")
+        if not key:
+            raise ClassifierError("OPENROUTER_API_KEY not set — required for the OpenRouter classifier")
+        import urllib.request, urllib.error, time  # lazy
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        req = urllib.request.Request(
+            url, data=json.dumps(_openrouter_payload(catalog, text, model_id)).encode(),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
+        for attempt in range(4):                            # transient 429/502/503 -> backoff 1,2,4s
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310
+                    return _parse(_openrouter_extract(json.loads(r.read().decode())))
+            except urllib.error.HTTPError as e:
+                if e.code in (429, 502, 503) and attempt < 3:
                     time.sleep(2 ** attempt)
                     continue
                 raise
