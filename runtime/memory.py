@@ -16,7 +16,7 @@ Required env:
 tenant -> palaceId (e.g. "neuraledge"); seat -> neopId (e.g. "aria").
 """
 from __future__ import annotations
-import os, json, urllib.request
+import os, json, urllib.request, urllib.error
 
 __all__ = ["MemPalaceError", "retrieve", "write", "get_twin", "put_twin",
            "twin_put_params", "twin_from_response"]
@@ -33,7 +33,27 @@ def _need(key: str) -> str:
     return v
 
 
+def _require_scope(tool: str, palace_id: str, neop_id: str) -> None:
+    """Layer-4 (broker) seat-scope guard — DEFENSE IN DEPTH, not the system of record.
+
+    The Convex SoT (Gates A/B) is the authoritative enforcer of per-room seat isolation.
+    The broker cannot — and must not — mirror room ownership client-side: that would
+    duplicate the SoT and risk staleness. What it CAN guarantee at the call site is
+    identity well-formedness: refuse to issue any scoped MemPalace op without an explicit,
+    non-blank tenant (palaceId) and seat (neopId). This matters because the server defaults
+    a missing neopId to "_admin" (convex/http.ts) — so a blank seat would SILENTLY escalate
+    to admin. Failing closed here, tagged denied_at_layer=broker, keeps that off the wire."""
+    for label, val in (("tenant/palaceId", palace_id), ("seat/neopId", neop_id)):
+        if not isinstance(val, str) or not val.strip():
+            raise MemPalaceError(
+                f"denied_at_layer=broker: {tool} requires a non-blank {label} (got {val!r}) "
+                f"— refusing to call MemPalace with an implicit identity")
+
+
 def _post(tool: str, palace_id: str, neop_id: str, params: dict) -> dict:
+    # Layer-4 defense-in-depth: never put a scoped op on the wire without an explicit
+    # tenant+seat (a blank neopId would default to "_admin" server-side — convex/http.ts).
+    _require_scope(tool, palace_id, neop_id)
     # Targets Mempalace_NEOS (Convex SoT + Voyage embeddings). Embeddings/Voyage are
     # server-side in Convex, so the client only needs the Convex URL — no embedding key.
     base = (os.environ.get("CONVEX_DEPLOYMENT_URL") or _need("CONVEX_SITE_URL")).rstrip("/")
@@ -42,8 +62,21 @@ def _post(tool: str, palace_id: str, neop_id: str, params: dict) -> dict:
         f"{base}/mcp", data=body,
         headers={"Content-Type": "application/json", "X-Palace-Neop": neop_id},
     )
-    with urllib.request.urlopen(req, timeout=20) as r:  # noqa: S310 (trusted internal endpoint)
-        resp = json.loads(r.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:  # noqa: S310 (trusted internal endpoint)
+            resp = json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        # The server enforces seat isolation (Gates A/B) and returns 403 on an ACL denial.
+        # urlopen raises on any 4xx/5xx, so classify here: surface a denial as a TYPED,
+        # layer-attributed broker error instead of an opaque urllib stack trace.
+        detail = ""
+        try:
+            detail = e.read().decode()[:200]
+        except Exception:
+            pass
+        if e.code == 403:
+            raise MemPalaceError(f"denied_at_layer=convex_sot: {tool} -> HTTP 403 {detail}") from e
+        raise MemPalaceError(f"mempalace_http_error: {tool} -> HTTP {e.code} {detail}") from e
     # Server envelope is {status:"ok", data:<result>} | {status:"error", error}. Unwrap to the
     # result so callers see the handler's return value directly (matches convex/http.ts).
     if isinstance(resp, dict):
