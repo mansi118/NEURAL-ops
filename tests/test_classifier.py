@@ -52,6 +52,43 @@ def test_gemini_extract_and_roundtrip():
     print("PASS test_gemini_extract_and_roundtrip")
 
 
+def test_openrouter_payload():
+    pay = c._openrouter_payload(CATALOG, "hi there", "anthropic/claude-3.5-haiku")
+    assert pay["model"] == "anthropic/claude-3.5-haiku", pay
+    assert pay["messages"][0]["role"] == "user", pay
+    assert pay["messages"][0]["content"].endswith('{"neop": "<agent_id>", "confidence": <0..1>}')
+    assert pay["temperature"] == 0, pay
+    print("PASS test_openrouter_payload")
+
+
+def test_openrouter_extract_and_roundtrip():
+    resp = {"choices": [{"message": {"role": "assistant", "content": '{"neop":"recon","confidence":0.91}'}}]}
+    assert c._openrouter_extract(resp) == '{"neop":"recon","confidence":0.91}'
+    assert c._parse(c._openrouter_extract(resp)) == ("recon", 0.91)        # full marshalling round-trip
+    for bad in ({"choices": []}, {"choices": [{"message": {"content": ""}}]}, {"choices": [{"message": {}}]}):
+        try:
+            c._openrouter_extract(bad)
+            assert False, f"expected ClassifierError on {bad!r}"
+        except c.ClassifierError:
+            pass
+    print("PASS test_openrouter_extract_and_roundtrip")
+
+
+def test_openrouter_credential_gated():
+    saved = os.environ.pop("OPENROUTER_API_KEY", None)
+    try:
+        clf = c.openrouter_classifier(CATALOG)
+        try:
+            clf("hi")                                                       # no key -> refuse, never silent
+            assert False, "expected ClassifierError without OPENROUTER_API_KEY"
+        except c.ClassifierError as e:
+            assert "OPENROUTER_API_KEY" in str(e), e
+    finally:
+        if saved is not None:
+            os.environ["OPENROUTER_API_KEY"] = saved
+    print("PASS test_openrouter_credential_gated")
+
+
 def test_gemini_credential_gated():
     saved = {k: os.environ.pop(k, None) for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY")}
     try:
