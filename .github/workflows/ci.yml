@@ -1,0 +1,35 @@
+name: CI
+
+# Runs the runtime/broker test suite — including the Gate C seat-isolation ACL
+# (Layer 4): tests/test_memory_scope.py asserts the broker fails closed on a blank
+# identity (denied_at_layer=broker) and classifies a server 403 (denied_at_layer=
+# convex_sot). Stdlib-only runners (each exits non-zero on failure); no network, no creds.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run test suite
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in tests/test_*.py; do
+            echo "::group::$f"
+            python3 "$f" || fail=1
+            echo "::endgroup::"
+          done
+          exit $fail
