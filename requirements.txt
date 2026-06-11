@@ -1,0 +1,7 @@
+# Runtime dependencies. PyYAML + cryptography are import-time (acp/capabilities,
+# acp/envelope); anthropic + boto3 are lazy/credential-gated (live model + Bedrock
+# paths) but listed so the environment is reproducible.
+anthropic>=0.40
+boto3>=1.35
+cryptography>=42
+PyYAML>=6
