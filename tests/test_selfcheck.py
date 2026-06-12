@@ -42,7 +42,7 @@ def test_degraded_recommended_warns_but_ok():
     env = {"CONVEX_DEPLOYMENT_URL": "https://x.convex.cloud", "ANTHROPIC_API_KEY": "sk-ant-x"}
     ok, errors, warnings = sc.check(env)
     assert ok and not errors, errors                       # required satisfied (alt Convex key)
-    assert any("OpenRouter" in w for w in warnings), warnings   # fallback missing → warn, not fail
+    assert any("OPENROUTER_API_KEY" in w for w in warnings), warnings   # fallback missing → warn, not fail
     assert any("entity graph" in w for w in warnings), warnings
     print("PASS test_degraded_recommended_warns_but_ok")
 
@@ -51,6 +51,19 @@ def test_blank_value_is_not_present():
     ok, _, _ = sc.check({"CONVEX_SITE_URL": "   ", "ANTHROPIC_API_KEY": "x"})
     assert not ok, "whitespace-only value must not count as present"
     print("PASS test_blank_value_is_not_present")
+
+
+def test_required_key_follows_configured_primary():
+    base = {"CONVEX_SITE_URL": "https://x.convex.site"}
+    # Primary = openrouter → OPENROUTER required, ANTHROPIC is now just the (present) fallback.
+    ok, errors, _ = sc.check({**base, "CLASSIFIER_PROVIDER": "openrouter"})
+    assert not ok and any("OPENROUTER_API_KEY" in e for e in errors), errors
+    ok, errors, _ = sc.check({**base, "CLASSIFIER_PROVIDER": "openrouter", "OPENROUTER_API_KEY": "sk-or-x"})
+    assert ok and not errors, errors
+    # An Anthropic key does NOT satisfy an openrouter primary (fallback ≠ boot substitute).
+    ok, _, _ = sc.check({**base, "CLASSIFIER_PROVIDER": "openrouter", "ANTHROPIC_API_KEY": "sk-ant-x"})
+    assert not ok, "fallback credential must not satisfy the configured primary at boot"
+    print("PASS test_required_key_follows_configured_primary")
 
 
 if __name__ == "__main__":
