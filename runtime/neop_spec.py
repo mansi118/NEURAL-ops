@@ -32,6 +32,15 @@ from runtime.core import DEFAULT_PHASE_SET, PHASE_SETS, Phase
 PATTERNS = ("augmented_call", "workflow", "agent")
 MAX_REPLAN_CEILING = 10  # a hard cap must be SANE — None / huge means effectively unbounded
 
+# Canonical role -> pattern inference default for spec GENERATORS (the scaffolder tools/new_neop.py and
+# the flywheel runtime/flywheel.py), so a generated NEop is born conformant. The LINTER below does NOT
+# use this — it only validates the DECLARED `pattern`. new_neop.py keeps a local copy (it must import
+# nothing from runtime to run standalone) and so does flywheel; test_neop_spec.py asserts the three
+# never drift. The human still confirms (downgrade meta/sales/research to `workflow` if the
+# decomposition is pre-wired rather than dynamic — don't default to autonomous).
+PATTERN_BY_ROLE = {"executor": "augmented_call", "reactive": "workflow",
+                   "meta": "agent", "sales": "agent", "research": "agent"}
+
 
 def _frontmatter(neop_md: pathlib.Path):
     parts = neop_md.read_text().split("---", 2)

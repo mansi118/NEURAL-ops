@@ -11,7 +11,7 @@ import tempfile
 
 R = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(R))
-from runtime.neop_spec import errors, lint_all, lint_spec, warnings  # noqa: E402
+from runtime.neop_spec import PATTERN_BY_ROLE, PATTERNS, errors, lint_all, lint_spec, warnings  # noqa: E402
 
 AGENTS = R / "agents"
 
@@ -103,6 +103,28 @@ def test_aci_warns_without_tools_json():
     d = _mk({"neop_id": "x", "version": 1, "pattern": "augmented_call", "role_family": "executor",
              "limits": {"max_replans": 0}, "tools": ["sts_whoami"]})  # no tools.json written
     assert "aci_no_tools_json" in _codes(warnings(lint_spec(d)))
+
+
+# ── both NEop-birth paths agree + carry a valid pattern (no divergent generation path) ────────────
+def test_pattern_inference_does_not_drift():
+    # canonical (neop_spec) == scaffolder (new_neop) == flywheel — local copies that must never diverge.
+    from runtime.flywheel import _PATTERN_BY_ROLE as fw
+    from tools.new_neop import _PATTERN_BY_ROLE as nn
+
+    assert fw == PATTERN_BY_ROLE == nn
+    assert set(PATTERN_BY_ROLE.values()) <= set(PATTERNS)
+
+
+def test_flywheel_proposal_carries_valid_pattern():
+    # the self-improvement engine must mint specs that would PASS the linter (G1), on every role.
+    from runtime.flywheel import _propose
+
+    cases = {("plan", "execute", "verify"): "agent", ("execute", "verify"): "workflow",
+             ("execute",): "augmented_call"}
+    for phases, expected in cases.items():
+        obs = [{"seat": "recon", "tools": ["t"], "phases": phases, "state": "DONE"}]
+        proposal = _propose("sig", obs)
+        assert proposal["pattern"] == expected and proposal["pattern"] in PATTERNS
 
 
 if __name__ == "__main__":
