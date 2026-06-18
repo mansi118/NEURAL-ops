@@ -2,6 +2,7 @@
 neop_id: cortex
 version: 1
 role_family: meta
+pattern: agent            # tool-using plan->execute->verify loop w/ replan + grounded PALACE memory
 model: { planner: stub, executor: stub, verifier: stub }
 limits: { max_replans: 1 }
 memory: { read: true, write: true }

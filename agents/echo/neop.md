@@ -2,6 +2,7 @@
 neop_id: echo
 version: 1
 role_family: meta
+pattern: workflow         # predefined pipeline, deterministic echo transform (no dynamic decomposition)
 model:
   planner: stub
   executor: stub

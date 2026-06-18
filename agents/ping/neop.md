@@ -2,6 +2,7 @@
 neop_id: ping
 version: 1
 role_family: executor
+pattern: augmented_call   # single augmented tool call (ping_tool), execute-only
 model: { executor: stub }
 limits: { max_replans: 0 }
 tools: [ping_tool]

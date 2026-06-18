@@ -2,6 +2,7 @@
 neop_id: decision-shadow
 version: 1
 role_family: reactive
+pattern: workflow         # predefined reactive compare (twin vs actual), no replan loop
 model: { executor: stub, verifier: stub }
 limits: { max_replans: 0 }
 memory: { read: true, write: false }

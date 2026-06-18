@@ -2,6 +2,7 @@
 neop_id: recon
 version: 1
 role_family: sales
+pattern: agent            # dynamic lead-DAG decomposition; plan->execute->verify + replan
 model: { planner: stub, executor: stub, verifier: stub }
 limits: { max_replans: 2, phase_timeout_s: { plan: 10, execute: 20, verify: 10 } }
 memory: { read: true, write: false }   # grounded by default; recon doesn't persist

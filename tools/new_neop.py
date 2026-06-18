@@ -24,13 +24,23 @@ def _yaml_bool(b):
     return "true" if b else "false"
 
 
+# Pattern classification (agents/AGENT_PATTERNS.md, G1) — a sane default inferred from the role, so a
+# scaffolded NEop is born conformant. The human confirms: downgrade meta/sales/research to `workflow`
+# if the decomposition is PRE-WIRED rather than dynamic (don't default to autonomous).
+_PATTERN_BY_ROLE = {"executor": "augmented_call", "reactive": "workflow",
+                    "meta": "agent", "sales": "agent", "research": "agent"}
+
+
 def build(nid, role, tools, harness, writes_mem, writes_twin):
     phases = PHASE_SETS.get(role, PHASE_SETS["meta"])
     primary = tools[0]
     model = ("{ planner: stub, executor: stub, verifier: stub }" if "plan" in phases
              else "{ executor: stub, verifier: stub }" if "verify" in phases
              else "{ executor: stub }")
+    pattern = _PATTERN_BY_ROLE.get(role, "agent")
     fm = ["---", f"neop_id: {nid}", "version: 1", f"role_family: {role}",
+          f"pattern: {pattern}   # CLASSIFY (G1): augmented_call|workflow|agent — "
+          "downgrade to workflow if the decomposition is pre-wired",
           f"model: {model}", "limits: { max_replans: 2 }"]
     if not harness:                              # the default posture — born grounded
         fm.append(f"memory: {{ read: true, write: {_yaml_bool(writes_mem)} }}")

@@ -2,6 +2,7 @@
 neop_id: interviewer
 version: 1
 role_family: meta
+pattern: agent            # dynamic interview loop drafting the twin; plan->execute->verify
 model: { planner: stub, executor: stub, verifier: stub }
 limits: { max_replans: 1 }
 memory: { read: true, write: false }
