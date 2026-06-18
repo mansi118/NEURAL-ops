@@ -11,7 +11,8 @@ Invariants + verified corrections: repo-root [`../CLAUDE.md`](../CLAUDE.md).
 |---|---|---|
 | **T0** | spike — live round-trip | **BOX-GATED** (needs jcode binary + `ANTHROPIC_API_KEY` + live palace + Docker). Go/no-go before T1 integration. |
 | **T1** | `palace_mcp_shim` | ✅ **built + unit-green (19/19)** — scope-lock, allowlist, fail-closed, signing. |
-| T2 | `config_render` + `isolation` | stub (config_render blocked on jcode schema from the clone) |
+| T2 | `config_render` | ✅ **built + green (12 tests)** — to jcode's real schema (provider `anthropic-api`, `$JCODE_HOME/{config.toml,mcp.json}`, tiers→`[tools].disabled`) |
+| T2 | `isolation` | stub (box-gated — Docker) |
 | T3 | `supervisor` | stub (box-gated) |
 | T4 | `audit_tap` + `event_bridge` | stub (shim already emits the jsonl audit fallback) |
 | T5 | `safety_policy` | matrix built (pure data) + tests; jcode-dialect render in T2 |

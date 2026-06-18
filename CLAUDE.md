@@ -41,8 +41,27 @@ Three corrections to the plan's stated invariants, confirmed against the actual 
 
 Other confirmed facts: `runtime/memory.py` gates on `CONVEX_DEPLOYMENT_URL or CONVEX_SITE_URL` (the
 `.convex.site` HTTP-actions endpoint — NOT `.convex.cloud`); Bedrock blocked account-wide → direct
-`ANTHROPIC_API_KEY`; jcode lives at the adjacent clone `/mnt/c/Users/LENOVO/Downloads/Jcode`
-(reference/runtime — configured, never forked).
+`ANTHROPIC_API_KEY`. jcode = `1jehuang/jcode`@`master` (reference/runtime — configured, never forked);
+the full git clone is flaky on this link — read files via `https://raw.githubusercontent.com/1jehuang/jcode/master/<path>`.
+
+## JCODE INTERFACE (traced 2026-06-18 from jcode@master — config_render built to THIS, not the plan's examples)
+- **Config dir = `$JCODE_HOME`** (default `~/.jcode`); main config = `$JCODE_HOME/config.toml`. No `--config` flag.
+- **Provider for a direct Anthropic key = `default_provider = "anthropic-api"`** (the bare string
+  `"claude"` is OAuth/subscription, NOT a key). NO `[providers.claude] type="anthropic"` — `[providers.X]`
+  is only for openai-compatible/openrouter gateways. Key read from env automatically; never write it to
+  config. Valid pinned id: `claude-opus-4-8`.
+- **MCP = separate JSON `$JCODE_HOME/mcp.json`** (also `./.jcode/mcp.json`, `./.claude/mcp.json`), top
+  key `servers`, per-server `{command,args,env,shared}`; **`shared` defaults TRUE → force `false`** for
+  the per-seat stateful shim. jcode launches `command` stdio MCP subprocesses (standard JSON-RPC).
+- **No four-tier safety config.** Shipped `[safety]` = notifications only. Real gating = `[tools].enabled/
+  .disabled` + `[hooks].pre_tool` (exit 2 = block). Adapter renders tiers → `[tools].disabled`
+  (Class B/C → `["bash","browser","swarm"]`; A → `["browser"]`); the ask/allow dynamic tier = the
+  pre_tool hook (T5). `sandbox_only` tools stay enabled — the CONTAINER is the sandbox.
+- **CLI:** `jcode run "<prompt>"` (one-shot), `jcode serve` (daemon), `jcode --resume <session_id>`
+  (a "seat" == a session id). **Memory graph is DURABLE** at `$JCODE_HOME/memory/` (not ephemeral);
+  export via `jcode memory export <out> --scope project|global|all` (feeds MemoryPromoter T6).
+- **Open Decision §8.1 RESOLVED:** jcode "OpenClaw" = its iOS-app / Ambient-Mode brand, NOT a shared
+  protocol/Hermes spine → the adapter does NOT get thinner; scope stays full.
 
 ## ENVIRONMENT GATES (cannot be run in this WSL dev box — USER/box-gated)
 - **T0 (go/no-go spike)** needs a runnable jcode binary + live `ANTHROPIC_API_KEY` + live palace

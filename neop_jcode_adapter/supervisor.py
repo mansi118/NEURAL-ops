@@ -1,7 +1,13 @@
 """SeatSupervisor — lifecycle for per-seat jcode processes (plan §3.4 / task T3).
 
-BOX-GATED: spawns jailed jcode (server mode) via IsolationUnit. Crash → restart with backoff;
-resumes the seat's session if jcode supports it. Implement after T2.
+BOX-GATED: spawns jailed jcode via IsolationUnit. Crash → restart with backoff; resumes the seat's
+session. Implement after T2.
+
+jcode CLI (verified from jcode@master src/cli/args.rs):
+  * one-shot:  ``jcode run "<prompt>"``  (add ``--json`` for a machine-readable result, ``--stream`` for NDJSON)
+  * server:    ``jcode serve``  (daemon)  /  ``jcode server stop``  /  ``jcode connect``
+  * resume:    top-level flag ``jcode --resume <SESSION_ID>``  (a "seat" maps to a session id)
+  * isolation: distinct ``JCODE_HOME`` per seat (config+state+memory dir); ``ANTHROPIC_API_KEY`` in env.
 """
 from __future__ import annotations
 
