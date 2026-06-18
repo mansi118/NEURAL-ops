@@ -42,7 +42,16 @@ _SURFACE_TO_TOOLS = {
 }
 # v1: there is no native per-tool "ask" tier in shipped config, so permission_required collapses to
 # deny (safe default; "no silent tool surfaces", §6) until the pre_tool hook lands in T5.
+#
+# B/C DIVERGENCE lives in the pre_tool hook, NOT here: Class B (swarm batch worker) and Class C (build)
+# render the SAME `[tools].disabled` ([bash, browser, swarm]) because the only thing that separates them
+# is permission-GATED swarm — and there's no native ask-tier, so swarm is denied for BOTH until the T5
+# pre_tool hook is real. seat_classes.swarm_enabled (B=True, C=False) is the hook's input: once the hook
+# exists it allows B's gated swarm and denies C's. Until then B==C in config (B's swarm is BLOCKED).
 _DENY_TIERS = frozenset({Tier.ALWAYS_DENY, Tier.PERMISSION_REQUIRED})
+
+# the worker (Class B/C) hard-deny list — also the SAFE rendering of Class A before its jail is live.
+_WORKER_DISABLED = ["bash", "browser", "swarm"]
 
 
 @dataclass
@@ -67,8 +76,15 @@ class ConfigRenderer:
     def __init__(self, default_model: str = DEFAULT_MODEL):
         self.default_model = default_model
 
-    def disabled_tools(self, seat_class: str) -> List[str]:
-        tiers = render_tiers(seat_class)
+    def disabled_tools(self, seat_class: str, *, jail_enforced: bool = False) -> List[str]:
+        cls = seat_class.upper()
+        tiers = render_tiers(cls)
+        if cls == "A" and not jail_enforced:
+            # Class A's loose posture (live bash+swarm, justified by "the container is the sandbox")
+            # ASSUMES an ENFORCED container jail. That jail is box-gated (Docker; built on the target at
+            # S0.1). Until the caller asserts jail_enforced=True we render A as a WORKER — never emit an
+            # unsandboxed bash+swarm seat. The config and the sandbox it assumes go live in the SAME step.
+            return list(_WORKER_DISABLED)
         out = set()
         for surface, tools in _SURFACE_TO_TOOLS.items():
             if tiers[surface] in _DENY_TIERS:
@@ -76,8 +92,8 @@ class ConfigRenderer:
         return sorted(out)
 
     def render_config_toml(self, seat_class: str, *, model_id: Optional[str] = None,
-                           pre_tool_hook: Optional[str] = None) -> str:
-        disabled = self.disabled_tools(seat_class)
+                           pre_tool_hook: Optional[str] = None, jail_enforced: bool = False) -> str:
+        disabled = self.disabled_tools(seat_class, jail_enforced=jail_enforced)
         lines = [
             "# Rendered per-seat by neop_jcode_adapter.config_render — DO NOT hand-edit.",
             "# Secrets are NEVER written here: the anthropic-api provider reads its key from the jailed",
@@ -120,8 +136,9 @@ class ConfigRenderer:
     def render(self, *, palace_id: str, neop_id: str, seat_class: str, jcode_home: str,
                palace_mcp_url: str, signing_key_ref: str, model_id: Optional[str] = None,
                pre_tool_hook: Optional[str] = None, enable_get_closet: bool = False,
-               write: bool = True) -> RenderedSeat:
-        config_toml = self.render_config_toml(seat_class, model_id=model_id, pre_tool_hook=pre_tool_hook)
+               jail_enforced: bool = False, write: bool = True) -> RenderedSeat:
+        config_toml = self.render_config_toml(
+            seat_class, model_id=model_id, pre_tool_hook=pre_tool_hook, jail_enforced=jail_enforced)
         mcp_json = self.render_mcp_json(
             palace_id=palace_id, neop_id=neop_id, palace_mcp_url=palace_mcp_url,
             signing_key_ref=signing_key_ref, enable_get_closet=enable_get_closet,
@@ -140,5 +157,5 @@ class ConfigRenderer:
             mcp_json_path=mcp_path,
             config_toml=config_toml,
             mcp_json=mcp_json,
-            disabled_tools=self.disabled_tools(seat_class),
+            disabled_tools=self.disabled_tools(seat_class, jail_enforced=jail_enforced),
         )

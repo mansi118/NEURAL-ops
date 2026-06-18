@@ -36,13 +36,21 @@ def test_class_b_disables_bash_browser_swarm():
     assert r().disabled_tools("B") == ["bash", "browser", "swarm"]
 
 
-def test_class_c_matches_worker_posture():
-    assert r().disabled_tools("C") == ["bash", "browser", "swarm"]
+def test_b_and_c_identical_until_pre_tool_hook():
+    # B/C diverge only on permission-gated swarm, which lives in the T5 hook → same config until then.
+    assert r().disabled_tools("B") == r().disabled_tools("C") == ["bash", "browser", "swarm"]
 
 
-def test_class_a_only_disables_browser_container_is_the_sandbox():
-    # A: shell_host/self_dev are sandbox_only (allowed — the container is the sandbox), swarm auto.
-    assert r().disabled_tools("A") == ["browser"]
+def test_class_a_tight_until_jail_enforced():
+    # default: jail not asserted live → render A as a worker, never unsandboxed bash+swarm
+    assert r().disabled_tools("A") == ["bash", "browser", "swarm"]
+
+
+def test_class_a_loosens_only_when_jail_enforced():
+    assert r().disabled_tools("A", jail_enforced=True) == ["browser"]
+    # and the loosened list flows through to the rendered toml
+    toml = r().render_config_toml("A", jail_enforced=True)
+    assert 'disabled = ["browser"]' in toml
 
 
 def test_disabled_renders_into_toml():

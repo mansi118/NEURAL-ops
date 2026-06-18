@@ -21,6 +21,13 @@ class Tier(str, Enum):
 SURFACES = ("palace", "shell_host", "browser", "self_dev", "swarm_spawn")
 
 # (plan §3.5) — keyed by seat class letter. "A" = NeP self-improvement lab; "B"/"C" = workers/build.
+#
+# IMPORTANT (per review 2026-06-18): Class A's SANDBOX_ONLY/AUTO_ALLOW tiers (live bash + swarm) are
+# only safe when the container jail is ENFORCED. That jail is box-gated (Docker, S0.1 on target), so
+# `config_render.disabled_tools(..., jail_enforced=False)` renders Class A as a WORKER (deny bash+swarm)
+# until the caller asserts the jail is live — the config and the sandbox it assumes go live together.
+# B vs C do NOT diverge in this matrix (C == B); their only difference is permission-gated swarm, which
+# has no native ask-tier, so it lives entirely in the T5 pre_tool hook (see config_render).
 SAFETY_MATRIX: Dict[str, Dict[str, Tier]] = {
     "A": {
         "palace": Tier.AUTO_ALLOW,

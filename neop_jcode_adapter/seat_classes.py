@@ -27,7 +27,11 @@ class SeatClassPreset:
     seat_class: SeatClass
     description: str
     sandbox_required: bool          # must run in a throwaway sandbox (Class A self-dev)
-    swarm_enabled: bool             # may spawn jcode coordinator/worker swarm
+    # swarm_enabled is the T5 pre_tool hook's INPUT, not the current rendered policy: the safety matrix
+    # has no native ask-tier, so config_render disables the `swarm` tool for BOTH B and C until the hook
+    # is real. Pre-hook, B==C in config (B's swarm is BLOCKED); once the hook exists it allows B's
+    # gated swarm (swarm_enabled=True) and denies C's (False). This flag is where B/C will diverge.
+    swarm_enabled: bool
     tiers: Dict[str, Tier] = field(default_factory=dict)
 
 

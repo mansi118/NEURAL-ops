@@ -117,7 +117,32 @@ def test_call_returns_response_and_audits_once():
     out = s.call("palace_search", {"query": "x"})
     assert out["http_status"] == 200 and out["response"]["status"] == "ok"
     assert len(sent) == 1 and len(audits) == 1
-    assert audits[0]["tool"] == "palace_search" and audits[0]["neopId"] == SEAT
+    # canonical audit record: action (not "tool"), result, scope on every line
+    assert audits[0]["action"] == "palace_search" and audits[0]["result"] == "allow"
+    assert audits[0]["neopId"] == SEAT and audits[0]["denied_at_layer"] is None
+
+
+def test_denials_are_audited_with_layer():
+    # both shim-level refusals produce a deny audit row BEFORE raising — leak detection needs it.
+    s, _, audits = make_shim()
+    with pytest.raises(ToolRejected):
+        s.call("shell", {"cmd": "x"})
+    with pytest.raises(ScopeSpoofRejected):
+        s.call("palace_search", {"query": "x", "neopId": "recon"})
+    assert [a["result"] for a in audits] == ["deny", "deny"]
+    assert all(a["denied_at_layer"] == "adapter_shim" for a in audits)
+    assert audits[1]["reason"] == "scope_spoof" and audits[1]["target"]["attempted_keys"] == ["neopId"]
+
+
+def test_palace_403_audited_as_convex_sot_deny():
+    audits = []
+
+    def deny_transport(url, body, headers):
+        return 403, {"status": "error", "error": "cross-seat denied"}
+
+    s = PalaceShim(palace_url=URL, palace_id=PAL, neop_id=SEAT, transport=deny_transport, audit=audits.append)
+    s.call("palace_search", {"query": "x"})
+    assert audits[0]["result"] == "deny" and audits[0]["denied_at_layer"] == "convex_sot"
 
 
 # ── signing (skips if cryptography absent) ────────────────────────────────────

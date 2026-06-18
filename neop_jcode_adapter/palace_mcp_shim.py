@@ -44,6 +44,15 @@ import urllib.request
 import urllib.error
 from typing import Callable, Optional
 
+from .audit_tap import (
+    LAYER_ADAPTER_SHIM,
+    LAYER_CONVEX_SOT,
+    LAYER_PALACE_ERROR,
+    RESULT_ALLOW,
+    RESULT_DENY,
+    make_event,
+)
+
 # ── tool allowlist (plan §3.1) ────────────────────────────────────────────────
 ALLOWED_TOOLS_BASE = frozenset({"palace_search", "palace_remember"})
 # server-side /mcp tool NOT registered until Mempalace T8 ships it; gated off by default.
@@ -147,16 +156,27 @@ def _urllib_transport(url: str, body: dict, headers: dict) -> tuple[int, dict]:
             return e.code, {}
 
 
+_DEFAULT_TAP = None
+_AUDIT_DISABLED_WARNED = False
+
+
 def _default_audit(event: dict) -> None:
-    """Pre-S0 jsonl fallback (plan §3.6). Writes one line per palace op if NEOP_AUDIT_DIR is set;
-    otherwise no-op (the real AuditTap, T4, supersedes this)."""
+    """Zero-config audit fallback. Writes via an AuditTap to NEOP_AUDIT_DIR if set (canonical record,
+    non-fatal, log-on-drop); otherwise warns ONCE that auditing is off — never a silent no-op
+    (auditable or it doesn't ship, §6). Production wires an explicit AuditTap(...).emit instead."""
+    global _DEFAULT_TAP, _AUDIT_DISABLED_WARNED
     d = os.environ.get("NEOP_AUDIT_DIR")
     if not d:
+        if not _AUDIT_DISABLED_WARNED:
+            sys.stderr.write("palace_mcp_shim: AUDIT DISABLED (set NEOP_AUDIT_DIR or wire AuditTap)\n")
+            sys.stderr.flush()
+            _AUDIT_DISABLED_WARNED = True
         return
-    os.makedirs(d, exist_ok=True)
-    seat = f"{event.get('palaceId', '?')}__{event.get('neopId', '?')}"
-    with open(os.path.join(d, f"{seat}.jsonl"), "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(event) + "\n")
+    if _DEFAULT_TAP is None or _DEFAULT_TAP.audit_dir != d:
+        from .audit_tap import AuditTap
+
+        _DEFAULT_TAP = AuditTap(d)
+    _DEFAULT_TAP.emit(event)
 
 
 # ── the shim ──────────────────────────────────────────────────────────────────
@@ -209,20 +229,38 @@ class PalaceShim:
             # NB: not verified by /mcp yet (Gate D deferred) — load-bearing once Layer 2 lands.
         return body, headers
 
+    def _permission(self) -> dict:
+        # honest-caller posture: scope is env-baked here, signed but not yet server-verified (Gate D).
+        return {"scope": "env-baked", "signed": self._signer is not None}
+
     def call(self, name: str, args: Optional[dict]) -> dict:
-        body, headers = self.build_request(name, args)
+        arg_keys = sorted((args or {}).keys())
+        # Audit DENIES as well as allows — the audit stream is the only leak-detector while the ACL is
+        # honest-caller (a denial-only or allow-only log can't prove "zero isolation violations").
+        try:
+            body, headers = self.build_request(name, args)
+        except ToolRejected:
+            self._audit(make_event(
+                palace_id=self.palace_id, neop_id=self.neop_id, action=name, result=RESULT_DENY,
+                denied_at_layer=LAYER_ADAPTER_SHIM, reason="tool_not_allowlisted",
+                permission=self._permission(), arg_keys=arg_keys))
+            raise
+        except ScopeSpoofRejected:
+            attempted = sorted(_FORBIDDEN_ARG_KEYS.intersection(args or {}))  # KEYS only, never values
+            self._audit(make_event(
+                palace_id=self.palace_id, neop_id=self.neop_id, action=name, result=RESULT_DENY,
+                denied_at_layer=LAYER_ADAPTER_SHIM, reason="scope_spoof",
+                target={"attempted_keys": attempted}, permission=self._permission(), arg_keys=arg_keys))
+            raise
+
         status, resp = self._transport(self.palace_url, body, headers)
-        self._audit(
-            {
-                "palaceId": self.palace_id,
-                "neopId": self.neop_id,
-                "tool": name,
-                "arg_keys": sorted((args or {}).keys()),
-                "http_status": status,
-                "result_status": resp.get("status") if isinstance(resp, dict) else None,
-                "signed": self._signer is not None,
-            }
-        )
+        rstatus = resp.get("status") if isinstance(resp, dict) else None
+        allowed = status == 200 and rstatus == "ok"
+        self._audit(make_event(
+            palace_id=self.palace_id, neop_id=self.neop_id, action=name,
+            result=RESULT_ALLOW if allowed else RESULT_DENY,
+            denied_at_layer=None if allowed else (LAYER_CONVEX_SOT if status == 403 else LAYER_PALACE_ERROR),
+            permission=self._permission(), http_status=status, result_status=rstatus, arg_keys=arg_keys))
         return {"http_status": status, "response": resp}
 
     # --- MCP tool advertisement ---

@@ -11,10 +11,10 @@ Invariants + verified corrections: repo-root [`../CLAUDE.md`](../CLAUDE.md).
 |---|---|---|
 | **T0** | spike — live round-trip | **BOX-GATED** (needs jcode binary + `ANTHROPIC_API_KEY` + live palace + Docker). Go/no-go before T1 integration. |
 | **T1** | `palace_mcp_shim` | ✅ **built + unit-green (19/19)** — scope-lock, allowlist, fail-closed, signing. |
-| T2 | `config_render` | ✅ **built + green (12 tests)** — to jcode's real schema (provider `anthropic-api`, `$JCODE_HOME/{config.toml,mcp.json}`, tiers→`[tools].disabled`) |
-| T2 | `isolation` | stub (box-gated — Docker) |
+| T2 | `config_render` | ✅ **built + green** — to jcode's real schema (provider `anthropic-api`, `$JCODE_HOME/{config.toml,mcp.json}`, tiers→`[tools].disabled`). Class A renders **tight (worker posture) until `jail_enforced=True`** — config + sandbox go live together. |
+| T2 | `isolation` | stub (box-gated — Docker; carries the jail `config_render` Class A waits on) |
 | T3 | `supervisor` | stub (box-gated) |
-| T4 | `audit_tap` + `event_bridge` | ✅ **built + green (14 tests)** — pre-S0 jsonl/local-log fallback; 100% palace-op coverage (shim→tap); `sink` hook for the NATS/ClickHouse cutover |
+| T4 | `audit_tap` + `event_bridge` | ✅ **built + green** — pre-S0 jsonl/local-log fallback; jsonl line IS the canonical ClickHouse row (who·when·what·on-whom·permission·result·`denied_at_layer` + scope); taps **allow AND deny** (shim refusals + 403s); **non-fatal + log-on-drop**; metadata-only (no payloads/secrets); `sink` hook for the NATS/ClickHouse cutover |
 | T5 | `safety_policy` | matrix built (pure data) + tests; jcode-dialect render in T2 |
 | T6 | `memory_promoter` | stub (blocked on jcode local-graph export format) |
 | — | `seat_classes` | ✅ presets built (pure data) |

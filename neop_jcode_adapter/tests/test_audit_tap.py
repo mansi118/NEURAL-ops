@@ -1,10 +1,16 @@
-"""T4 tests for AuditTap — the durable, 100%-coverage palace-op audit (jsonl fallback)."""
-import os
+"""T4 tests for AuditTap — canonical-row audit, allow+deny coverage, non-fatal, metadata-only."""
+import json
 
 import pytest
 
-from neop_jcode_adapter.audit_tap import AuditTap, seat_filename
-from neop_jcode_adapter.palace_mcp_shim import PalaceShim
+from neop_jcode_adapter.audit_tap import (
+    AuditTap,
+    LAYER_ADAPTER_SHIM,
+    LAYER_CONVEX_SOT,
+    make_event,
+    seat_filename,
+)
+from neop_jcode_adapter.palace_mcp_shim import PalaceShim, ScopeSpoofRejected
 
 FIXED = lambda: 1_750_000_000.0  # deterministic clock
 
@@ -13,83 +19,118 @@ def tap(tmp_path, **kw):
     return AuditTap(str(tmp_path), clock=FIXED, **kw)
 
 
+# ── canonical record (the eventual ClickHouse row) ────────────────────────────
+def test_make_event_has_locked_field_set():
+    ev = make_event(palace_id="pal", neop_id="aria", action="palace_search", result="allow")
+    for k in ("schema_version", "palaceId", "neopId", "actor", "action", "target",
+              "permission", "result", "denied_at_layer", "arg_keys"):
+        assert k in ev
+    assert ev["actor"] == "aria" and ev["target"] == {"palaceId": "pal", "neopId": "aria"}
+
+
+def test_make_event_deny_requires_layer():
+    with pytest.raises(ValueError):
+        make_event(palace_id="p", neop_id="a", action="x", result="deny")  # no denied_at_layer
+    ok = make_event(palace_id="p", neop_id="a", action="x", result="deny",
+                    denied_at_layer=LAYER_ADAPTER_SHIM)
+    assert ok["denied_at_layer"] == "adapter_shim"
+
+
+def test_emit_stamps_time_and_persists(tmp_path):
+    t = tap(tmp_path)
+    rec = t.emit(make_event(palace_id="pal", neop_id="aria", action="palace_remember", result="allow"))
+    assert rec["ts"] == 1_750_000_000.0 and rec["ts_iso"].startswith("2025-")
+    assert list(t.records_for(("pal", "aria")))[0]["action"] == "palace_remember"
+
+
 # ── construction / destination guarantee ──────────────────────────────────────
 def test_no_destination_raises():
     with pytest.raises(ValueError):
-        AuditTap(audit_dir=None)  # no dir, no sink → an audit tap that audits nowhere
+        AuditTap(audit_dir=None)
 
 
-def test_sink_only_is_allowed():
+def test_sink_only_allowed():
     rows = []
-    t = AuditTap(audit_dir=None, sink=rows.append, clock=FIXED)
-    t.emit({"palaceId": "p", "neopId": "a", "tool": "palace_search"})
-    assert rows and rows[0]["tool"] == "palace_search"
+    AuditTap(audit_dir=None, sink=rows.append, clock=FIXED).emit(
+        make_event(palace_id="p", neop_id="a", action="palace_search", result="allow"))
+    assert rows[0]["action"] == "palace_search"
 
 
-# ── enrichment + per-seat routing ─────────────────────────────────────────────
-def test_emit_enriches_and_routes_per_seat(tmp_path):
-    t = tap(tmp_path)
-    rec = t.emit({"palaceId": "pal", "neopId": "aria", "tool": "palace_remember"})
-    assert rec["kind"] == "palace_op"
-    assert rec["ts"] == 1_750_000_000.0 and rec["ts_iso"].startswith("2025-")
-    path = tmp_path / seat_filename("pal", "aria")
-    assert path.exists()
-    assert list(t.records_for(("pal", "aria")))[0]["tool"] == "palace_remember"
-
-
+# ── per-seat routing ──────────────────────────────────────────────────────────
 def test_two_seats_isolated_files(tmp_path):
     t = tap(tmp_path)
-    t.emit({"palaceId": "pal", "neopId": "aria", "tool": "palace_search"})
-    t.emit({"palaceId": "pal", "neopId": "recon", "tool": "palace_search"})
+    t.emit(make_event(palace_id="pal", neop_id="aria", action="palace_search", result="allow"))
+    t.emit(make_event(palace_id="pal", neop_id="recon", action="palace_search", result="allow"))
     assert len(list(t.records_for(("pal", "aria")))) == 1
     assert len(list(t.records_for(("pal", "recon")))) == 1
+    assert (tmp_path / seat_filename("pal", "aria")).exists()
 
 
-# ── 100% palace-op coverage: shim wired to the tap ────────────────────────────
-def test_shim_to_tap_gives_full_coverage(tmp_path):
+# ── 100% coverage incl. denials: shim wired to the tap ────────────────────────
+def test_shim_to_tap_taps_allows_and_denies(tmp_path):
     t = tap(tmp_path)
 
-    def transport(url, body, headers):
+    def ok_transport(url, body, headers):
         return 200, {"status": "ok", "data": {}}
 
-    aria = PalaceShim(palace_url="u", palace_id="pal", neop_id="aria", transport=transport, audit=t.emit)
-    recon = PalaceShim(palace_url="u", palace_id="pal", neop_id="recon", transport=transport, audit=t.emit)
+    aria = PalaceShim(palace_url="u", palace_id="pal", neop_id="aria", transport=ok_transport, audit=t.emit)
     for _ in range(3):
         aria.call("palace_search", {"query": "x"})
-    recon.call("palace_remember", {"content": "y"})
-    # every single call produced exactly one audit row in the right seat file
-    assert len(list(t.records_for(("pal", "aria")))) == 3
-    assert len(list(t.records_for(("pal", "recon")))) == 1
-    # rejected ops never reach the palace, so they aren't palace-ops — but they DO raise (visible),
-    # never silently pass: a scope-spoof attempt is refused before any audit row is written.
-    from neop_jcode_adapter.palace_mcp_shim import ScopeSpoofRejected
+    # a cross-seat spoof attempt: raises AND lands a deny row (not silently dropped)
     with pytest.raises(ScopeSpoofRejected):
         aria.call("palace_search", {"query": "x", "neopId": "recon"})
-    assert len(list(t.records_for(("pal", "aria")))) == 3  # unchanged
+    rows = list(t.records_for(("pal", "aria")))
+    assert [r["result"] for r in rows] == ["allow", "allow", "allow", "deny"]
+    deny = rows[-1]
+    assert deny["denied_at_layer"] == LAYER_ADAPTER_SHIM and deny["reason"] == "scope_spoof"
+
+
+def test_palace_403_tapped_as_convex_sot_deny(tmp_path):
+    t = tap(tmp_path)
+
+    def deny_transport(url, body, headers):
+        return 403, {"status": "error"}
+
+    s = PalaceShim(palace_url="u", palace_id="pal", neop_id="aria", transport=deny_transport, audit=t.emit)
+    s.call("palace_search", {"query": "x"})
+    assert list(t.records_for(("pal", "aria")))[0]["denied_at_layer"] == LAYER_CONVEX_SOT
+
+
+# ── metadata only — no payload/secret reaches the 7-year stream ───────────────
+def test_no_arg_values_or_secrets_in_jsonl(tmp_path):
+    t = tap(tmp_path)
+
+    def ok_transport(url, body, headers):
+        return 200, {"status": "ok", "data": {}}
+
+    s = PalaceShim(palace_url="u", palace_id="pal", neop_id="aria", transport=ok_transport, audit=t.emit)
+    s.call("palace_remember", {"content": "SUPER_SECRET_xyz", "wingName": "team"})
+    raw = (tmp_path / seat_filename("pal", "aria")).read_text()
+    assert "SUPER_SECRET_xyz" not in raw          # the value never lands
+    assert '"arg_keys"' in raw and "content" in raw  # only the KEYS are recorded
+
+
+# ── non-fatal: a failed write must not fail the op, but must not be silent ─────
+def test_write_failure_is_nonfatal_and_logged(tmp_path, capsys):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a dir")
+    t = AuditTap(str(blocker / "under_a_file"), clock=FIXED)  # parent is a file → write fails
+    rec = t.emit(make_event(palace_id="p", neop_id="a", action="palace_search", result="allow"))
+    assert rec["action"] == "palace_search"   # emit returned normally — caller op not failed
+    assert t.dropped == 1
+    assert "AUDIT-DROP" in capsys.readouterr().err  # loud, not silent
 
 
 # ── transcript export ─────────────────────────────────────────────────────────
 def test_export_transcript_records_reference(tmp_path):
     t = tap(tmp_path)
-    rec = t.export_transcript(("pal", "aria"), "s3://transcripts/aria/sess1.json", meta={"turns": 12})
+    rec = t.export_transcript(("pal", "aria"), "s3://transcripts/sess1.json", meta={"turns": 12})
     assert rec["kind"] == "transcript" and rec["transcript_ref"].endswith("sess1.json")
     assert rec["turns"] == 12
-    assert any(r["kind"] == "transcript" for r in t.records_for(("pal", "aria")))
 
 
-# ── fail-loud on unwritable destination ───────────────────────────────────────
-def test_write_failure_raises(tmp_path):
-    blocker = tmp_path / "blocker"
-    blocker.write_text("not a dir")
-    t = AuditTap(str(blocker / "under_a_file"), clock=FIXED)  # parent is a file → makedirs fails
-    with pytest.raises(OSError):
-        t.emit({"palaceId": "p", "neopId": "a", "tool": "palace_search"})
-
-
-# ── sink forwarding alongside jsonl ───────────────────────────────────────────
 def test_sink_and_jsonl_both_receive(tmp_path):
     rows = []
     t = tap(tmp_path, sink=rows.append)
-    t.emit({"palaceId": "p", "neopId": "a", "tool": "palace_search"})
-    assert len(rows) == 1
-    assert len(list(t.records_for(("p", "a")))) == 1
+    t.emit(make_event(palace_id="p", neop_id="a", action="palace_search", result="allow"))
+    assert len(rows) == 1 and len(list(t.records_for(("p", "a")))) == 1
