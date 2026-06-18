@@ -1,0 +1,57 @@
+# CLAUDE.md — neop-jcode-adapter
+
+You are implementing the NEop⟷jcode harness adapter. Read
+`docs/neop-jcode-adapter-implementation-plan.md` first and follow §4 in order.
+
+INVARIANTS (do not violate — see plan §1):
+- Memory = CORTEX-PALACE ops only (palace_search / palace_remember / [palace_get_closet after T8]).
+- Scope is (palaceId, neopId); NEVER accept scope from the model. The shim bakes + signs it.
+- ACL is fail-open until S0.3 → the container jail carries isolation. Do not weaken the jail.
+- jcode is configured, never forked. Bedrock is blocked → use ANTHROPIC_API_KEY.
+- Internal tenant only; no client data until T7 (red-team isolation) passes.
+
+WORKFLOW:
+- Implement one task at a time; run its tests before moving on.
+- STOP and ask before T9 (first real NEop) and before any task that would touch client data.
+- T1 and T8 are independent and may be parallelized; T2→T3→T4 are sequential.
+
+---
+
+## VERIFIED REALITY (traced 2026-06-18 against live Mempalace_NEOS / NEURAL-ops — do not re-derive)
+
+Three corrections to the plan's stated invariants, confirmed against the actual repos. Build to THESE:
+
+1. **`/mcp` does NOT verify any signature today.** `convex/access/enforce.ts:316` states signed
+   `X-NEop-Identity` is DEFERRED (Gate D, to S0.3+); `convex/http.ts:75` resolves identity as
+   `neopId = body.neopId ?? header "X-Palace-Neop" ?? "_admin"`. ⇒ The shim's Ed25519 signing is
+   **forward-looking defense-in-depth, NOT a live trust boundary.** The enforced v1 guarantees are
+   (a) scope baked from env + **fail-closed on blank scope**, and (b) the container egress jail.
+   SHARP EDGE: missing scope defaults to **`_admin`, which BYPASSES all ACL** — so the shim must
+   ALWAYS set neopId (body + `X-Palace-Neop` header) and refuse to start on blank PALACE_ID/NEOP_ID.
+
+2. **The real `/mcp` request contract** (verified via `tools/dogfish_acl_smoke.py`), NOT the plan's
+   `{**args, palaceId, neopId}` pseudocode:
+   `POST {PALACE_MCP_URL}` body = `{"tool": <name>, "palaceId": <pid>, "neopId": <seat>, "params": <args>}`,
+   header `X-Palace-Neop: <seat>`. Tool args go under **`params`**, and `tool` is a top-level field.
+
+3. **`palace_get_closet` (by-id):** the underlying Convex query `getCloset(closetId)` ALREADY exists
+   (`convex/palace/queries.ts:143`), but it is **not registered as an `/mcp` tool**. So T8 is smaller
+   than the plan assumed — only the MCP tool dispatch case + ACL wrapper. Keep it GATED in the shim
+   until T8 ships (`enable_get_closet=False` by default).
+
+Other confirmed facts: `runtime/memory.py` gates on `CONVEX_DEPLOYMENT_URL or CONVEX_SITE_URL` (the
+`.convex.site` HTTP-actions endpoint — NOT `.convex.cloud`); Bedrock blocked account-wide → direct
+`ANTHROPIC_API_KEY`; jcode lives at the adjacent clone `/mnt/c/Users/LENOVO/Downloads/Jcode`
+(reference/runtime — configured, never forked).
+
+## ENVIRONMENT GATES (cannot be run in this WSL dev box — USER/box-gated)
+- **T0 (go/no-go spike)** needs a runnable jcode binary + live `ANTHROPIC_API_KEY` + live palace
+  deploy + Docker. None exist here (no Docker in WSL; palace deploy is the user's `CONVEX_DEPLOY_KEY`
+  gate). T0 must pass on the target box (EC2/Mac-mini) before T1 integration / T2+ are validated.
+- Offline-gradeable now: T1 shim unit tests (scope-lock, allowlist, signing), safety-tier data,
+  seat-class presets. Everything touching containers/live palace/jcode is box-gated.
+
+## DISCIPLINE (inherited from the NEOS project)
+Trace-before-build; surface missing pieces as blockers, don't code past them. `runtime/core.py`
+stays byte-identical. NEURAL-ops = branch + PR, confirm-before-push. One task at a time, tests green
+before moving on.
