@@ -2,6 +2,7 @@
 neop_id: researcher
 version: 1
 role_family: research
+pattern: agent            # plan->execute->verify research loop with replan
 model: { planner: stub, executor: stub, verifier: stub }
 limits: { max_replans: 2 }
 memory: { read: true, write: false }

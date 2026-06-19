@@ -30,6 +30,12 @@ _ROLE_BY_PHASES = {
     ("execute",): "executor",
 }
 
+# role -> pattern inference default (agents/AGENT_PATTERNS.md G1). A flywheel-proposed NEop carries its
+# classification for review, MATCHING what the scaffold_cmd's new_neop.py will emit. Mirrors
+# tools/new_neop._PATTERN_BY_ROLE + runtime.neop_spec.PATTERN_BY_ROLE; test_neop_spec asserts no drift.
+_PATTERN_BY_ROLE = {"executor": "augmented_call", "reactive": "workflow",
+                    "meta": "agent", "sales": "agent", "research": "agent"}
+
 
 def signature(seat, tools):
     """A work-shape key: who ran it + the ordered tool spine. Stable, content-derived."""
@@ -49,8 +55,9 @@ def _propose(sig, obs):
     seat = obs[0]["seat"]
     tools = obs[0]["tools"]
     role = _ROLE_BY_PHASES.get(obs[0]["phases"], "meta")
+    pattern = _PATTERN_BY_ROLE.get(role, "agent")   # G1 — the proposal carries its classification
     neop_id = f"{seat}-auto"
-    return {"neop_id": neop_id, "role": role, "tools": tools,
+    return {"neop_id": neop_id, "role": role, "pattern": pattern, "tools": tools,
             "scaffold_cmd": f"python3 tools/new_neop.py {neop_id} --role {role} "
                             f"--tools {','.join(tools) or neop_id + '_tool'}"}
 

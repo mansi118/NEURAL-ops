@@ -2,6 +2,7 @@
 neop_id: proposal-writer
 version: 1
 role_family: meta
+pattern: agent            # plan->execute->verify with replan
 model: { planner: stub, executor: stub, verifier: stub }
 limits: { max_replans: 2 }
 memory: { read: true, write: false }

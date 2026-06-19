@@ -2,6 +2,7 @@
 neop_id: aws-probe
 version: 1
 role_family: executor
+pattern: augmented_call   # single augmented tool call (sts_whoami), execute-only, no loop
 model: { executor: stub }
 limits: { max_replans: 0 }
 tools: [sts_whoami]
