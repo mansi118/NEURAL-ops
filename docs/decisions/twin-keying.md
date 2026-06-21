@@ -71,9 +71,15 @@ twin, so there is no `binding ⇒ perms` dependency and no silent-deny footgun.
 - **(b) Gate D forward-intersection still holds.** When S0.3 signed-identity lands and the server derives
   `neopId` server-side, twin ops must derive the **requester**, not the executing NEop (twin neopId =
   requester; memory neopId = seat). The exact-match bar above is what S0.3 must preserve.
-- **Cleanup trace (not a gate on this decision):** if seat provisioning currently grants human seats
-  `recall`+`remember` to make per-NEop/A-style twin access work, B2 lets that over-grant be **removed** —
-  memory perms go back to being scoped, twin access no longer depends on them. Run after wiring.
+- **Cleanup trace (RESOLVED 2026-06-21 — no-op):** traced whether seat provisioning grants human seats
+  `recall`+`remember` to make A-style twin access work. **It does not — nothing to remove.**
+  `upsertSeatBinding` (`convex/access/bindings.ts`) writes only the `seat_bindings` row, never
+  `neop_permissions`. The only perms-granting paths are `setNeopPermissions` (`palace/mutations.ts`,
+  admin-driven, arbitrary ops) and the `DEFAULT_NEOP_PERMS` provision template (`palace/provision.ts` —
+  `_admin` + NEop seats at palace setup). No path grants a human/user seat `recall`+`remember` for twin
+  access. ⇒ There was never an over-grant, because there was never an A-style workaround: `binding ⇏ perms`,
+  so A would have **silently denied** the first real user their own twin. This is the third independent
+  confirmation (alongside §1 the throw, §2 the missing perms row) that going structural (B2) was correct.
 
 ### 3. The twin-touching meta-NEops must carry the user — not fall through to `or seat`
 The **Twin Curator** evolves the user's twin; the **Decision Shadow** predicts the user. Both are
