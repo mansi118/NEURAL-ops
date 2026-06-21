@@ -111,6 +111,31 @@ def test_6_no_policy_and_permissive_policy_are_inert():
     print("PASS test_6_additive_inert")
 
 
+def test_7_convex_snapshot_store_seam_offline_gradeable():
+    """The live paused_runs seam: drop-in for the store, refuses without creds, refuses blank scope —
+    no network, nothing faked. Live save/load is gated on Convex paused_runs functions + a deploy."""
+    import os
+    from runtime.memory import MemPalaceError
+    store = AG.ConvexSnapshotStore("palaceX", "seatY")
+    ap = AG.ApprovalBroker(ApprovalPolicy(scope_modes={"tool": "ask"}), store=store)
+    assert ap.store is store                              # drop-in for MemorySnapshotStore
+    saved = dict(os.environ)
+    for k in ("CONVEX_DEPLOYMENT_URL", "CONVEX_SITE_URL"):
+        os.environ.pop(k, None)
+    try:
+        try:
+            store.save("rid", {"x": 1}); assert False, "must refuse without CONVEX_* creds"
+        except MemPalaceError as e:
+            assert "not set" in str(e)                    # credential gate, not a network attempt
+        try:
+            AG.ConvexSnapshotStore("palaceX", "  ").save("rid", {"x": 1}); assert False
+        except MemPalaceError as e:
+            assert "denied_at_layer=broker" in str(e)     # L4 fail-closed: blank seat refused
+    finally:
+        os.environ.clear(); os.environ.update(saved)
+    print("PASS test_7_convex_snapshot_store_seam")
+
+
 if __name__ == "__main__":
     for n, f in sorted(globals().items()):
         if n.startswith("test_") and callable(f):
