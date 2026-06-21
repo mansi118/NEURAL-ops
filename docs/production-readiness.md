@@ -7,13 +7,15 @@
 > agent **builds to the walls and cannot declare it**. This ledger tracks every deliverable to that gate.
 
 ## Verification evidence (2026-06-21, against the self-hosted convex-local-backend)
-- NEURAL-ops python sweep **17/17**; Mempalace vitest **94 pass | 1 skip** at every merge; L2 `bridge_identity` **5/5**.
+- NEURAL-ops python sweep **18/18**; Mempalace vitest **95 pass | 1 skip** at every merge; L2 `bridge_identity` **5/5**.
 - **Live, against the real /mcp dispatcher (not simulated):** dogfish cross-seat ACL **4/4**; edge-auth +
   audit **7/7**; full E2E process (forged inbound → edge-auth → broker.write/retrieve → broker
   denied_at_layer → audit) **8/8**. `tsc` green both repos.
 - **Governance activated + LIVE-proven this session:** `paused_runs` durable pause — save(insert+update)+get
   round-trip returns the exact snapshot; bridge denial emit — `denialsByLayer` `falkordb` count incremented
   end-to-end via the actual `_emit_external_denial` Python path (bridge → `/external-denial` → audit).
+- **Twin = identity, per-user — LIVE-proven:** a **permission-less** seat reads+writes its **own** twin while
+  the **same seat is still denied a memory op** (`palace_search`) — the B2 carve-out is exactly twin-specific.
 - ⇒ The **security / identity / audit / governance spine is built, merged, and LIVE-proven** — and the
   approval engine now has a live, durable consumer.
 
@@ -44,10 +46,18 @@
    (NEURAL-ops #18, credential-gated + L4 scope guard) ↔ Convex `paused_runs` store (Mempalace #19,
    round-trip live) — durable pause survives the process; bridge→Convex external-denial emit (Mempalace #20,
    least-privilege `/external-denial` httpAction, shared key, default-off) → `denialsByLayer` falkordb live.
-🔨 OPA/Rego integration code; Decision-Queue read of `paused_runs` (the nc-web surface); namespace logic.
+✅ **Twin keyed per-USER, not per-NEop** (reviewed-spec → wire, `docs/decisions/twin-keying.md`): `core.py`
+   `twin_owner = msg.get("requester") or seat` (NEURAL-ops #23, backward-compatible — no requester ⇒
+   byte-identical) + **B2 carve-out** (Mempalace #21) — the twin is **identity, not memory**: `palace_get_twin`/
+   `palace_put_twin` ungated from recall/remember via `identityOnlyPerms`, own-twin = exact server-derived
+   `neopId`. Working memory stays per-seat. Security linchpin: `requester` is server-derived (edge-auth E1–E5,
+   unforgeable). `test_twin_keying.py` 4/4 incl. *two distinct NEops + same requester share ONE twin*.
 ⛔ **The flip itself** (minimal approval policy + `BRIDGE_IDENTITY_ENABLED`/`CONVEX_DENIAL_SINK_URL` on +
    inject `ApprovalBroker(policy, store=ConvexSnapshotStore(...))` for the dogfood tenant) · OPA/Rego
    **policy sign-off** · KMS CMK · `X-NEop-Identity` signing scheme (HMAC/Ed25519) · pen-test.
+   **Named forward-dependency (Gate D / S0.3):** twin-keying is broker-trusted today (broker sets `requester`
+   from the verified identity); when signed-identity lands, twin ops must derive the **requester** server-side
+   (memory ops keep deriving seat) — pinned in `docs/decisions/twin-keying.md`, not hidden.
 
 ### P3 — Live comms + UI 🔨/⛔
 🔨 nc-channels Matrix AS adapter + normalization + HMAC + attachments; streaming transport; nc-web
@@ -62,10 +72,14 @@
    output): `agents/vault-promoter` (#16, `vault.promote`) · `agents/twin-curator` (`curator.curate`→curated
    twin) · `agents/hierarchy-resolver` (`hierarchy.delegate`) · `agents/acp-router` (`router.route`→signed
    inform envelope) — batch PR #19. nrt suite + `neop_spec` linter + sweep 17/17 green; core.py untouched.
+✅ **Twin is per-USER** (`docs/decisions/twin-keying.md`, see P2) — the premise "it models *you*, one
+   coherent self across the workforce" now holds in code: the interview seeds it, every NEop reads it at
+   assemble, Twin Curator + Decision Shadow operate on it. So fidelity/maturity measure the **person**, not
+   a per-NEop fragment — the precondition for the D90 fidelity criterion being meaningful.
 🔨/⛔ **Wiring** (live-gated, server-side — NOT offline-buildable): real STM/LTM/Vault tiering (broker
    passthrough → `vault.promote`); RRF 4-backend fusion (broker is vector-only — add bm25/graph/recency);
-   fidelity clock (per-seat rolling window surfacing `curator.fidelity`); live tool binding for the wrappers
-   + async cadence. (Fidelity TARGET 0.65@D90 is a learning-clock outcome, not a build.)
+   fidelity clock (per-**user** rolling window surfacing `curator.fidelity`); live tool binding for the
+   wrappers + async cadence. (Fidelity TARGET 0.65@D90 is a learning-clock outcome, not a build.)
 
 ### P5 — The fleet 🔨/⛔
 🔨 re-wrap Recon/ICD/CoS/TeamPulse onto planner→executor→verifier; build toward the catalog (each green under `nrt`).
@@ -87,9 +101,9 @@
 ## V1 Day-90 acceptance scorecard
 | Criterion | Status |
 |---|---|
-| ≥5 seats onboarded, twin.md v≥5 | ⛔ live tenant |
+| ≥5 seats onboarded, twin.md v≥5 | ✅ twin is per-USER + seeded by the interview (keying done) · ⛔ live tenant to accrue versions |
 | ≥3 NEops/seat in regular use | 🔨 P5 re-wrap, then ⛔ usage |
-| twin fidelity ≥0.65 | 🔨 P4 fidelity clock, then ⛔ usage outcome |
+| twin fidelity ≥0.65 | ✅ measures the **person** now (per-user twin) · 🔨 P4 fidelity clock · ⛔ usage outcome |
 | chat p95 ≤2s / NEop run p95 ≤60s | ⛔ deployed-stack measurement |
 | **zero tenant-isolation violations 30d** | ✅ mechanism live-proven (4-layer ACL + audit replay via `denialsByLayer`, all 4 layers) — needs ⛔ 30d live window |
 | 6 meta-NEops live · dashboard · pen-test | ✅ 4 meta-NEops wrapped (+ approval/edge meta-seams) · 🔨 dashboard · ⛔ live binding + pen-test |
