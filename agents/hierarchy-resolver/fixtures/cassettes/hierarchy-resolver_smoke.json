@@ -1,0 +1,1 @@
+{"plan:hierarchy-resolver": {"tasks": [{"task_id": "resolve", "tool": "resolve_hierarchy", "depends_on": []}]}, "verify:hierarchy-resolver": {"pass": true}}

@@ -1,0 +1,1 @@
+{"resolve_hierarchy": {"capability": "code", "from_seat": "ceo", "delegate_to": "eng1", "escalation_chain": ["vp_eng", "ceo"]}}
