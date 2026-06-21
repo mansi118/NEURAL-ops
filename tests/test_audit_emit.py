@@ -63,6 +63,57 @@ def test_posts_expected_payload_when_configured():
     print("PASS test_posts_expected_payload_when_configured")
 
 
+def test_edge_denial_resolves_palace_then_emits():
+    saved = dict(os.environ)
+    os.environ["CONVEX_DENIAL_SINK_URL"] = "http://sink.example"
+    os.environ["PALACE_BRIDGE_API_KEY"] = "k"
+    cap = {}
+
+    class _R:
+        def close(self):
+            pass
+
+    def fake(req, timeout=None):
+        cap["body"] = json.loads(req.data.decode())
+        return _R()
+
+    class _Rej:
+        audit = {"tenant": "neuraledge", "claimed": "_admin", "reason": "reserved_identity_claimed"}
+
+    orig = AE.urllib.request.urlopen
+    AE.urllib.request.urlopen = fake
+    try:
+        AE.emit_edge_denial(_Rej(), resolve_palace_id=lambda t: "palace123" if t == "neuraledge" else None)
+    finally:
+        AE.urllib.request.urlopen = orig
+        os.environ.clear(); os.environ.update(saved)
+    assert cap["body"]["deniedAtLayer"] == "edge"
+    assert cap["body"]["palaceId"] == "palace123"   # resolved name→palaceId — the key the edge lacked
+    assert cap["body"]["neopId"] == "_admin"
+    print("PASS test_edge_denial_resolves_palace_then_emits")
+
+
+def test_edge_denial_noop_when_no_tenant_or_unresolvable():
+    AE.emit_edge_denial(type("R", (), {"audit": {}})(), resolve_palace_id=lambda t: "x")          # no tenant
+    AE.emit_edge_denial(type("R", (), {"audit": {"tenant": "ghost"}})(), resolve_palace_id=lambda t: None)
+    print("PASS test_edge_denial_noop_when_no_tenant_or_unresolvable")
+
+
+def test_edge_auth_on_reject_seam_fires_and_enriches_tenant():
+    from acp.edge_auth import resolve_edge_identity, EdgeRejected
+    cap = []
+    try:
+        resolve_edge_identity(
+            {"from": {}}, as_context={"mxid": "@x:host", "tenant_id": "neuraledge"},
+            verify_hmac=lambda i: True, resolve_binding=lambda m: None,    # unknown user → EdgeRejected
+            on_reject=lambda e: cap.append(e))
+        assert False, "should have rejected"
+    except EdgeRejected:
+        pass
+    assert cap and cap[0].audit["tenant"] == "neuraledge"   # enriched from the AS namespace for keying
+    print("PASS test_edge_auth_on_reject_seam_fires_and_enriches_tenant")
+
+
 if __name__ == "__main__":
     for n, f in sorted(globals().items()):
         if n.startswith("test_") and callable(f):

@@ -7,5 +7,6 @@ resource "aws_secretsmanager_secret" "runtime" {
 
   name        = "${local.name}/${each.value}"
   description = "${each.value} for the NEOS runtime (value set post-apply, never in TF state)."
+  kms_key_id  = aws_kms_key.main.arn
   tags        = { Name = "${local.name}-${lower(each.value)}" }
 }
