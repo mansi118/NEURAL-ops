@@ -45,6 +45,14 @@ def _require_scope(tool: str, palace_id: str, neop_id: str) -> None:
     to admin. Failing closed here, tagged denied_at_layer=broker, keeps that off the wire."""
     for label, val in (("tenant/palaceId", palace_id), ("seat/neopId", neop_id)):
         if not isinstance(val, str) or not val.strip():
+            # Emit the broker denial to the unified audit (denialsByLayer counts the broker layer, not
+            # just convex_sot + falkordb). Best-effort, credential-gated; a no-op if palaceId is the
+            # blank field (nothing to key on). See runtime/audit_emit.
+            from runtime.audit_emit import emit_external_denial
+            # NB: do NOT pass op=<tool> — audit_events.op is a typed enum (recall|remember|…), not a
+            # tool name; the tool rides in `reason`. (op defaults to "search" server-side.)
+            emit_external_denial(palace_id, "broker", neop_id=neop_id,
+                                 reason=f"broker: {tool} blank {label}")
             raise MemPalaceError(
                 f"denied_at_layer=broker: {tool} requires a non-blank {label} (got {val!r}) "
                 f"— refusing to call MemPalace with an implicit identity")
