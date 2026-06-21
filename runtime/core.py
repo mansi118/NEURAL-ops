@@ -68,6 +68,7 @@ EVENT_TYPES = {
     "plan_start", "plan_end",
     "tool_call", "tool_result", "tool_blocked",
     "verify_start", "verify_end", "replan", "escalate", "run_end",
+    "awaiting_approval", "approval_granted", "approval_denied",   # P2 approval gate (additive)
 }
 
 
@@ -307,8 +308,9 @@ class MemoryBroker:
 
 # ============================================================ Pi-agent
 class PiAgent:
-    def __init__(self, defn, model, tools, memory):
+    def __init__(self, defn, model, tools, memory, approval=None):
         self.defn, self.model, self.tools, self.mem = defn, model, tools, memory
+        self.approval = approval                                  # P2 gate; None => no gate (inert)
         self.phases = defn["phases"]
         self.state = State.LOADING
         self.events = []
@@ -323,6 +325,9 @@ class PiAgent:
         self.twin_written = None                                  # put_twin ack (producers)
         self.shadow = None                                        # decision-shadow record
         self.t0 = time.time()
+        # run-scoped context (stashed at run start; used by the gate snapshot + resume)
+        self._msg = self._tenant = self._seat = self._run_id = None
+        self._pause_scope = self._paused_task_id = self._pause_action = None
 
     def _e(self, kind, **f): self.events.append(event(kind, self.t0, **f))
 
@@ -331,6 +336,8 @@ class PiAgent:
                  phases=[p.value for p in self.phases])
         self.state = State.ASSEMBLING
         tenant, seat = msg.get("tenant", "default"), msg.get("seat", self.defn["id"])
+        self._msg, self._tenant, self._seat = msg, tenant, seat
+        self._run_id = msg.get("run_id") or f"{tenant}:{seat}:{self.defn['id']}"
         self.bundle = {}
         if self.mem_cfg.get("read"):
             self.bundle = self.mem.retrieve(tenant, seat, msg.get("text", ""))
@@ -354,26 +361,62 @@ class PiAgent:
         else:
             self.plan = self._implicit_plan(msg)
 
+        # PLAN GATE (P2) — inert unless a policy is injected; await/deny returns the run paused/rejected.
+        if self.approval is not None:
+            self._gate(self._plan_action(msg), "plan", None)
+            if self.state in (State.AWAITING_APPROVAL, State.REJECTED):
+                self._e("run_end", state=self.state.value, replans=self.replans)
+                return self._result()
+
+        self._drive(msg)
+
+        # paused at an action gate (or denied) -> return WITHOUT the post-terminal side-effects;
+        # those run on the eventual resume->terminal. Inert when approval is None (state never AWAIT/REJECTED here).
+        if self.state in (State.AWAITING_APPROVAL, State.REJECTED):
+            self._e("run_end", state=self.state.value, replans=self.replans)
+            return self._result()
+
+        self._finalize(msg)
+        self._e("run_end", state=self.state.value, replans=self.replans)
+        return self._result()
+
+    def _drive(self, msg, *, resume_from=None, resume_outputs=None):
+        """The execute/replan loop. Extracted so run() and resume() share it. When approval is None,
+        resume_from is None and the replan re-gate is skipped -> behaviour identical to the inline loop."""
+        first_resume = resume_from is not None
         while True:
-            ok = self._execute_and_maybe_verify(self.plan, msg)
+            if first_resume:
+                ok = self._execute_and_maybe_verify(self.plan, msg,
+                                                    _resume_from=resume_from, _resume_outputs=resume_outputs)
+                first_resume = False
+            else:
+                ok = self._execute_and_maybe_verify(self.plan, msg)
             if ok:
                 self.state = State.DONE
-                break
-            if self.state == State.FAILED:
-                break
+                return
+            # FAILED (blocked tool) / AWAITING_APPROVAL (action pause) / REJECTED (action deny) all stop here.
+            if self.state in (State.FAILED, State.AWAITING_APPROVAL, State.REJECTED):
+                return
             # replan only meaningful if this role plans
             if Phase.PLAN not in self.phases:
                 self.state = State.FAILED
-                break
+                return
             self.replans += 1
             if self.replans > self.max_replans:
                 self.state = State.ESCALATED
                 self._e("escalate", replans=self.replans)
-                break
+                return
             self._e("replan", n=self.replans)
             self.state = State.REPLANNING
             self.plan = self._plan(msg)
+            if self.approval is not None:                # re-approve-on-change: a replanned plan re-gates
+                self._gate(self._plan_action(msg), "plan", None)
+                if self.state in (State.AWAITING_APPROVAL, State.REJECTED):
+                    return
 
+    def _finalize(self, msg):
+        """Post-terminal side-effects (memory write · twin write · shadow). Runs once the run reaches a
+        non-paused terminal — from run() normally, or from resume() after a grant completes the run."""
         if self.mem_cfg.get("write"):
             tenant, seat = msg.get("tenant", "default"), msg.get("seat", self.defn["id"])
             chunks = self.bundle.get("chunks", [])
@@ -400,6 +443,75 @@ class PiAgent:
                            "class": msg.get("decision_class", "selective")}
             # emitted post-terminal -> structurally off the critical path (non-blocking)
             self._e("shadow_prediction", **self.shadow)
+
+    # ---- P2 approval gate: three-way decide + durable pause/resume --------------------
+    def _action_for_task(self, task):
+        return {"scope": task.get("scope", "tool"), "name": task.get("tool"),
+                "seat": self._seat, "tenant": self._tenant, "target": task.get("target")}
+
+    def _plan_action(self, msg):
+        return {"scope": "plan", "name": self.plan.get("plan_id", "plan"),
+                "seat": self._seat, "tenant": self._tenant, "target": self.defn["id"]}
+
+    def _gate(self, action, pause_scope, paused_task_id):
+        """Three-way gate. -> 'proceed' | 'await' | 'deny'. ALLOW: no state change. DENY: REJECTED, no
+        pause. AWAIT: snapshot to the store, emit, AWAITING_APPROVAL. Only reached when approval is set."""
+        decision, reason = self.approval.decide(action)
+        if decision == "allow":
+            return "proceed"
+        if decision == "deny":
+            self.state = State.REJECTED
+            self._e("approval_denied", run_id=self._run_id, action=action, reason=reason, grantor=None)
+            return "deny"
+        snap = self.to_state(pause_scope=pause_scope, action=action, paused_task_id=paused_task_id)
+        self.approval.save(self._run_id, snap)
+        self.state = State.AWAITING_APPROVAL
+        self._e("awaiting_approval", run_id=self._run_id, action=action,
+                scope=action.get("scope"), pause_scope=pause_scope)
+        return "await"
+
+    def to_state(self, *, pause_scope, action, paused_task_id):
+        """Resumable snapshot (the SDK to_state shape). Hermetic: carries the assembled bundle+twin so
+        resume never re-retrieves (no second memory hit, no drift if a tier changed under the pause)."""
+        return {"neop_id": self.defn["id"], "state": State.AWAITING_APPROVAL.value,
+                "run_id": self._run_id, "pause_scope": pause_scope, "action": action,
+                "paused_task_id": paused_task_id, "plan": self.plan,
+                "outputs": dict(self.outputs), "replans": self.replans,
+                "msg": self._msg, "bundle": self.bundle, "twin": self.twin,
+                "seat": self._seat, "tenant": self._tenant}
+
+    def _restore(self, snap):
+        self.plan = snap["plan"]
+        self.outputs = dict(snap.get("outputs", {}))
+        self.replans = snap.get("replans", 0)
+        self.bundle = snap.get("bundle", {})
+        self.twin = snap.get("twin")
+        self._msg, self._seat, self._tenant = snap["msg"], snap["seat"], snap["tenant"]
+        self._run_id = snap["run_id"]
+        self._pause_scope = snap["pause_scope"]
+        self._paused_task_id = snap.get("paused_task_id")
+        self._pause_action = snap["action"]
+        self.state = State.AWAITING_APPROVAL
+
+    def resume(self):
+        """Resolve a paused run. resolve() re-checks GW-5 hard-deny, so a grant can never override it.
+        ALLOW -> re-enter the loop (action: at the paused task; plan: from the loop top). DENY -> REJECTED."""
+        action = self._pause_action
+        decision, reason, grantor = self.approval.resolve(action)
+        if decision != "allow":
+            self.state = State.REJECTED
+            self._e("approval_denied", run_id=self._run_id, action=action, reason=reason, grantor=grantor)
+            self._e("run_end", state=self.state.value, replans=self.replans)
+            return self._result()
+        self._e("approval_granted", run_id=self._run_id, action=action, reason=reason, grantor=grantor)
+        if self._pause_scope == "action":
+            self._drive(self._msg, resume_from=self._paused_task_id, resume_outputs=self.outputs)
+        else:                                            # plan pause -> start the loop with the approved plan
+            self._drive(self._msg)
+        if self.state in (State.AWAITING_APPROVAL, State.REJECTED):   # may pause/deny again downstream
+            self._e("run_end", state=self.state.value, replans=self.replans)
+            return self._result()
+        self._finalize(self._msg)
         self._e("run_end", state=self.state.value, replans=self.replans)
         return self._result()
 
@@ -443,11 +555,22 @@ class PiAgent:
             visit(t["task_id"])
         return order
 
-    def _execute_and_maybe_verify(self, plan, msg):
-        self.outputs = {}
-        for task in self._topo_order(plan["tasks"]):
+    def _execute_and_maybe_verify(self, plan, msg, *, _resume_from=None, _resume_outputs=None):
+        self.outputs = dict(_resume_outputs) if _resume_outputs is not None else {}
+        ordered = self._topo_order(plan["tasks"])
+        start = 0
+        if _resume_from is not None:
+            start = next(i for i, t in enumerate(ordered) if t["task_id"] == _resume_from)
+        for idx, task in enumerate(ordered):
+            if idx < start:
+                continue
             self.state = State.EXECUTING
             tool = task.get("tool")
+            # ACTION GATE (P2) — consent precedes the mutation (tools.invoke). Skip for the just-resumed
+            # task (already approved) and inert when approval is None.
+            if self.approval is not None and tool and not (_resume_from is not None and idx == start):
+                if self._gate(self._action_for_task(task), "action", task["task_id"]) != "proceed":
+                    return False        # AWAITING_APPROVAL / REJECTED set by _gate; _drive stops on it
             if tool:
                 self._e("tool_call", task=task["task_id"], tool=tool)
                 # thread upstream outputs into this task's input scope, keyed by dep task_id
@@ -487,14 +610,29 @@ class PiAgent:
 
 
 # ============================================================ dispatch
-def dispatch(folder, msg, mode, cassette, mocks, stm, memory=None, twin=None):
+def dispatch(folder, msg, mode, cassette, mocks, stm, memory=None, twin=None, approval=None):
     defn, diags = load_neop(folder)
     if defn is None:
         return {"state": State.REJECTED.value, "diagnostics": diags,
                 "events": [], "tool_calls": []}
     agent = PiAgent(defn, ModelBroker(mode, cassette),
                     ToolBroker(mode, mocks, defn["tools"]),
-                    MemoryBroker(mode, stm, bundle=memory, twin=twin))
+                    MemoryBroker(mode, stm, bundle=memory, twin=twin), approval=approval)
     res = agent.run(msg)
     res["diagnostics"] = diags  # warnings surface even on success
+    return res
+
+
+def dispatch_resume(folder, run_id, approval, mode, cassette, mocks, stm, memory=None, twin=None):
+    """Resume a run paused at AWAITING_APPROVAL: load the snapshot, reconstruct the Pi-agent, resolve
+    the grant (GW-5 hard-deny re-checked) and continue to a terminal. Symmetric with dispatch()."""
+    defn, diags = load_neop(folder)
+    if defn is None:
+        return {"state": State.REJECTED.value, "diagnostics": diags, "events": [], "tool_calls": []}
+    agent = PiAgent(defn, ModelBroker(mode, cassette),
+                    ToolBroker(mode, mocks, defn["tools"]),
+                    MemoryBroker(mode, stm, bundle=memory, twin=twin), approval=approval)
+    agent._restore(approval.load(run_id))
+    res = agent.resume()
+    res["diagnostics"] = diags
     return res

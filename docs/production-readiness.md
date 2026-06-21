@@ -27,9 +27,14 @@
 
 ### P2 — Governance + multi-tenant (the critical-path gate)
 ✅ approval-policy engine (GW-4/5/6, `acp/approval.py`) · **4-layer ACL all emitting** (edge · broker ·
-   convex_sot · falkordb) — FalkorDB L2 enforcement core + bridge wiring (5 endpoints, default-off flag).
-🔨 **`AwaitingApproval` run-state** — the ONE sanctioned `core.py` change (surface design first); OPA/Rego
-   integration code; bridge→Convex live `recordExternalDenial` emit; namespace logic.
+   convex_sot · falkordb) — L2 enforcement core + bridge wiring **merged** (5 endpoints incl `graph_stats`,
+   default-off flag, Mempalace PR #18). · **`AwaitingApproval` run-state WIRED** — the one sanctioned
+   `core.py` change, against a reviewed transition spec: `AWAITING_APPROVAL` non-terminal pause, two
+   in-edges (EXECUTING/PLANNING) + three-way gate (ALLOW/AWAIT/DENY→REJECTED), durable `to_state`/resume,
+   GW-5 hard-deny re-checked on grant. Additive `approval=None` → byte-identical (nrt suite + 17/17 sweep);
+   6 acceptance scenarios green (`tests/test_awaiting_approval.py`). The approval engine now has a consumer.
+🔨 OPA/Rego integration code; bridge→Convex live `recordExternalDenial` emit; live `paused_runs` store
+   (the snapshot seam, Convex-backed) + Decision-Queue read; namespace logic.
 ⛔ OPA/Rego **policy sign-off**; KMS CMK; `X-NEop-Identity` signing scheme (HMAC/Ed25519); pen-test.
 
 ### P3 — Live comms + UI 🔨/⛔
