@@ -24,10 +24,12 @@
 ⛔ embedder decision+key; cloud `convex deploy`; rotations; Anthropic key for live classifier verdict.
 
 ### P1 — Production substrate (S0)
-✅ S0.1 runtime container (PR #6 open, your docker review) · S0.2 secrets (`runtime/secrets.py`, env→keyring→refuse).
-🔨 containers for nc-* (need the services first); Terraform tenant-provisioning **module** (validate offline);
-   OTel instrumentation (needs services).
-⛔ ECS/EC2/ALB/VPC, Secrets Manager, KMS, S3, Synapse hosts; the `terraform apply`; DR backups.
+✅ S0.1 runtime container (PR #6 open, your docker review) · S0.2 secrets (`runtime/secrets.py`, env→keyring→refuse) ·
+   **Terraform substrate module** (`infra/terraform/`, PR #21) — VPC→ALB→ECS Fargate (runtime)→Secrets Manager→
+   IAM→CloudWatch; `fmt`/`init`/`validate` clean offline; secrets created empty (values out-of-band, S0.2); README runbook.
+🔨 containers for nc-* (need the services first); bridge/nc-* task defs as further modules; OTel instrumentation.
+⛔ **`terraform apply`** (AWS account + creds — the gate; validate ≠ working infra) · KMS CMK · remote state (S3+lock) ·
+   TLS (ACM/443) · Synapse hosts · DR backups.
 
 ### P2 — Governance + multi-tenant (the critical-path gate) — ACTIVATED this session
 ✅ approval-policy engine (GW-4/5/6, `acp/approval.py`) · **4-layer ACL all emitting + LIVE-proven**
