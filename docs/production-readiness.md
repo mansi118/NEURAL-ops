@@ -37,10 +37,16 @@
    (Decision Queue + dashboard); nc-admin.
 ⛔ live Synapse homeserver(s); domain/DNS/TLS.
 
-### P4 — Learning loop / the twin product 🔨 (all agent-buildable on the proven substrate — NEXT)
-🔨 memory tiering real (STM/LTM/Vault, replace passthrough); RRF 4-backend fusion; the **4 remaining
-   meta-NEops** (Vault Promoter · Twin Curator · Hierarchy Resolver · ACP Router); fidelity clock + twin
-   maturity machine. (Fidelity TARGETS 0.65@D90 are a learning-clock outcome, not a build.)
+### P4 — Learning loop / the twin product 🔨 (logic largely BUILT; remaining = wiring + Pi-agent wrappers)
+✅ **Meta-NEop logic exists + tested** (2026-06-21 survey): `runtime/vault.py` (5-gate `promote`/rollback) ·
+   `runtime/curator.py` (`fidelity`/`corroborated`/`next_maturity`/`curate`) · `runtime/flywheel.py`
+   (observe/surface/triage/run) · `runtime/rrf.py` (`fuse`/`fuse_results`) · **`acp/hierarchy.py`**
+   (Hierarchy Resolver — delegation/escalation, 6/6, this turn).
+🔨 **Wiring** (the real remaining work): memory tiering real (STM/LTM/Vault — replace the broker passthrough,
+   call `vault.promote`); RRF 4-backend fusion (broker is vector-only — add bm25/graph/recency channels);
+   fidelity clock (per-seat rolling window surfacing `curator.fidelity`). **Pi-agent wrappers**: wrap the 4
+   meta-NEops (Vault Promoter · Twin Curator · Hierarchy Resolver · ACP Router) as `agents/<name>/` on the
+   dispatch contract via `tools/new_neop.py`. (Fidelity TARGETS 0.65@D90 are a learning-clock outcome, not a build.)
 
 ### P5 — The fleet 🔨/⛔
 🔨 re-wrap Recon/ICD/CoS/TeamPulse onto planner→executor→verifier; build toward the catalog (each green under `nrt`).
