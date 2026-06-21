@@ -14,7 +14,7 @@ from __future__ import annotations
 from acp.approval import (Action, ApprovalPolicy, decide as _decide,  # noqa: F401
                           resolve_grant, ALLOW, DENY, AWAIT)
 
-__all__ = ["ApprovalBroker", "MemorySnapshotStore", "ApprovalPolicy"]
+__all__ = ["ApprovalBroker", "MemorySnapshotStore", "ConvexSnapshotStore", "ApprovalPolicy"]
 
 
 class MemorySnapshotStore:
@@ -31,6 +31,37 @@ class MemorySnapshotStore:
         if run_id not in self._d:
             raise KeyError(f"no paused run {run_id!r}")
         return self._d[run_id]
+
+
+class ConvexSnapshotStore:
+    """Live `paused_runs` seam — durable snapshot store over the Convex SoT, a drop-in for
+    MemorySnapshotStore. Reuses `runtime.memory._post`, so it inherits BOTH the credential gate
+    (refuses without CONVEX_DEPLOYMENT_URL / CONVEX_SITE_URL) AND the L4 fail-closed scope guard
+    (refuses a blank tenant/seat — a blank neopId would silently escalate to _admin server-side).
+    Therefore it is offline-gradeable — `constructs + refuses without creds` — and only touches the
+    network when a live deployment is configured.
+
+    Scope (palaceId, neopId) is BAKED at construction — never taken from the model — matching the
+    broker identity invariant. GATED until the Convex tools `palace_save_paused_run` /
+    `palace_get_paused_run` ship (Mempalace `paused_runs` schema + functions) and a deploy is live."""
+
+    SAVE_TOOL = "palace_save_paused_run"
+    LOAD_TOOL = "palace_get_paused_run"
+
+    def __init__(self, palace_id, neop_id):
+        self.palace_id, self.neop_id = palace_id, neop_id
+
+    def save(self, run_id, state):
+        from runtime.memory import _post   # lazy: import cost + credential gate only on live use
+        _post(self.SAVE_TOOL, self.palace_id, self.neop_id, {"runId": run_id, "state": state})
+
+    def load(self, run_id):
+        from runtime.memory import _post
+        data = _post(self.LOAD_TOOL, self.palace_id, self.neop_id, {"runId": run_id})
+        state = data.get("state") if isinstance(data, dict) else None
+        if state is None:
+            raise KeyError(f"no paused run {run_id!r} in Convex paused_runs")
+        return state
 
 
 class ApprovalBroker:
