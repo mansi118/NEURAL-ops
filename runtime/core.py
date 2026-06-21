@@ -639,5 +639,11 @@ def dispatch_resume(folder, run_id, approval, mode, cassette, mocks, stm, memory
                     MemoryBroker(mode, stm, bundle=memory, twin=twin), approval=approval)
     agent._restore(approval.load(run_id))
     res = agent.resume()
+    # Decision Queue lifecycle: the pause is no longer pending. Best-effort — never fail a completed
+    # resume on a store hiccup (the run already reached its terminal).
+    try:
+        approval.mark_resolved(run_id, res.get("state"))
+    except Exception:
+        pass
     res["diagnostics"] = diags
     return res

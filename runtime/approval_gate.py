@@ -19,18 +19,27 @@ __all__ = ["ApprovalBroker", "MemorySnapshotStore", "ConvexSnapshotStore", "Appr
 
 class MemorySnapshotStore:
     """Offline snapshot sink (the `paused_runs` seam, unit mode). Live mode swaps this for a
-    Convex-backed store with the same save/load interface — pause/resume stays offline-gradeable."""
+    Convex-backed store with the same save/load/resolve/pending interface — the Decision Queue
+    (pending pauses) and resume→resolved lifecycle stay offline-gradeable."""
 
     def __init__(self):
-        self._d = {}
+        self._d = {}                       # run_id -> {state, status}
 
     def save(self, run_id, state):
-        self._d[run_id] = state
+        self._d[run_id] = {"state": state, "status": "pending"}
 
     def load(self, run_id):
         if run_id not in self._d:
             raise KeyError(f"no paused run {run_id!r}")
-        return self._d[run_id]
+        return self._d[run_id]["state"]
+
+    def resolve(self, run_id, status="resolved"):
+        if run_id in self._d:
+            self._d[run_id]["status"] = status
+
+    def pending(self):
+        """The Decision Queue: run_ids still awaiting a human (offline mirror of pendingPausedRuns)."""
+        return [rid for rid, v in self._d.items() if v["status"] == "pending"]
 
 
 class ConvexSnapshotStore:
@@ -62,6 +71,13 @@ class ConvexSnapshotStore:
         if state is None:
             raise KeyError(f"no paused run {run_id!r} in Convex paused_runs")
         return state
+
+    RESOLVE_TOOL = "palace_resolve_paused_run"
+
+    def resolve(self, run_id, status="resolved"):
+        """Flip the pause pending→resolved|denied so the Decision Queue stops showing it."""
+        from runtime.memory import _post
+        _post(self.RESOLVE_TOOL, self.palace_id, self.neop_id, {"runId": run_id, "status": status})
 
 
 class ApprovalBroker:
@@ -102,3 +118,12 @@ class ApprovalBroker:
 
     def load(self, run_id):
         return self.store.load(run_id)
+
+    def mark_resolved(self, run_id, terminal_state):
+        """Decision Queue lifecycle: a resumed pause is no longer pending. REJECTED → denied, else
+        resolved. Best-effort — callers wrap this so a store hiccup never fails the resume."""
+        status = "denied" if terminal_state == "REJECTED" else "resolved"
+        self.store.resolve(run_id, status)
+
+    def pending(self):
+        return self.store.pending()
