@@ -23,3 +23,8 @@ auditable, twin-versioned NEop run. The live `curate_twin` tool binds to `runtim
 returns the **curated twin** (its `twin` field — corroborated edits applied, maturity advanced); the
 broker writes it back via `put_twin` on run end. The fixture mock mirrors that exact curated twin. An
 edit commits only with enough field signals (T-6); versioning is the broker's (single-writer per twin).
+
+**Twin keying (docs/decisions/twin-keying.md):** this NEop curates **the user's** twin, which is keyed by
+`requester`. It is user-*about*, not user-*less* — its dispatch (incl. background triggers) MUST thread the
+target user as `requester`. The `twin_owner = requester or seat` fallback to `seat` is for genuinely
+user-less system runs ONLY; if this NEop ran seatless it would curate its own twin, not the user's.

@@ -346,8 +346,12 @@ class PiAgent:
                     ids=[c["id"] for c in self.bundle.get("chunks", [])])
         # session order (T-5): tenant_ctx · twin · STM · PALACE. Twin is opt-in (twin.read)
         # and prepended to the prompt before the model call; no twin -> prior NEops unchanged.
+        # Twin keying (docs/decisions/twin-keying.md): the twin models the PERSON, so it is keyed by the
+        # requester (server-derived, unforgeable) — one twin shared across ALL of that user's NEops.
+        # Falls back to seat for genuinely user-less system runs. Working memory stays per-seat (above).
+        twin_owner = msg.get("requester") or seat
         if self.twin_cfg.get("read"):
-            tw = self.mem.get_twin(tenant, seat)
+            tw = self.mem.get_twin(tenant, twin_owner)
             if tw:
                 self.twin = tw
                 self.bundle["twin"] = tw
@@ -426,14 +430,15 @@ class PiAgent:
             self.mem.consolidate(tenant, seat)          # STM->LTM hook (stub body, real call)
             self._e("memory_write", cites=record["cites"], status=ack.get("status"))
         fm = self.defn["frontmatter"]
-        if self.twin_cfg.get("write"):                  # Interviewer: write twin.md v0
+        if self.twin_cfg.get("write"):                  # Interviewer/Curator: write the user's twin
             tenant, seat = msg.get("tenant", "default"), msg.get("seat", self.defn["id"])
+            twin_owner = msg.get("requester") or seat   # per-user key (see assemble); user-about NEops thread requester
             draft = next(iter(self.outputs.values()), {}) if self.outputs else {}
-            self.twin_written = self.mem.put_twin(tenant, seat, draft)
+            self.twin_written = self.mem.put_twin(tenant, twin_owner, draft)
             if self.twin_written.get("status") == "rejected":
                 self.state = State.FAILED               # invalid/stale twin -> fail the run
             else:
-                self._e("twin_written", seat=seat, version=self.twin_written.get("version"),
+                self._e("twin_written", seat=twin_owner, version=self.twin_written.get("version"),
                         diff_id=self.twin_written.get("diff_id"))
         if fm.get("shadow"):                            # Decision Shadow (Flow 5)
             predicted = next(iter(self.outputs.values()), None)

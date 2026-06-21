@@ -18,3 +18,8 @@ The twin is prepended in `assemble`; the prediction is compared to the actual ac
 emitted as a `shadow_prediction` event **after the terminal state is set**, so it is
 structurally off the critical path (non-blocking, Flow 5). The fidelity clock that
 consumes these signals is P-later.
+
+**Twin keying (docs/decisions/twin-keying.md):** the Shadow predicts **the user**, whose twin is keyed by
+`requester`. It is user-*about*, not user-*less* — its dispatch (incl. background triggers) MUST thread the
+target user as `requester`, or `twin_owner = requester or seat` falls back to this NEop's own twin and the
+Shadow would predict against the wrong model. The `or seat` fallback is for genuinely user-less runs only.
