@@ -116,21 +116,28 @@ def test_7_convex_snapshot_store_seam_offline_gradeable():
     no network, nothing faked. Live save/load is gated on Convex paused_runs functions + a deploy."""
     import os
     from runtime.memory import MemPalaceError
-    store = AG.ConvexSnapshotStore("palaceX", "seatY")
+    store = AG.ConvexSnapshotStore("palaceX")             # PER-TENANT (palaceId only; scope is per-run)
     ap = AG.ApprovalBroker(ApprovalPolicy(scope_modes={"tool": "ask"}), store=store)
     assert ap.store is store                              # drop-in for MemorySnapshotStore
     saved = dict(os.environ)
     for k in ("CONVEX_DEPLOYMENT_URL", "CONVEX_SITE_URL"):
         os.environ.pop(k, None)
     try:
+        # save keys the row by the snapshot's OWN seat (provenance); a valid seat → credential gate
         try:
-            store.save("rid", {"x": 1}); assert False, "must refuse without CONVEX_* creds"
+            store.save("rid", {"seat": "aria", "x": 1}); assert False, "must refuse without CONVEX_* creds"
         except MemPalaceError as e:
             assert "not set" in str(e)                    # credential gate, not a network attempt
+        # a snapshot with a blank seat → L4 fail-closed (no keyless/implicit-identity row)
         try:
-            AG.ConvexSnapshotStore("palaceX", "  ").save("rid", {"x": 1}); assert False
+            store.save("rid", {"seat": "  "}); assert False
         except MemPalaceError as e:
-            assert "denied_at_layer=broker" in str(e)     # L4 fail-closed: blank seat refused
+            assert "denied_at_layer=broker" in str(e)
+        # load keys by (palaceId, runId) under the operator identity (scope read from the row) → creds-gated
+        try:
+            store.load("rid"); assert False
+        except MemPalaceError as e:
+            assert "not set" in str(e)
     finally:
         os.environ.clear(); os.environ.update(saved)
     print("PASS test_7_convex_snapshot_store_seam")
