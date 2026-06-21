@@ -43,41 +43,44 @@ class MemorySnapshotStore:
 
 
 class ConvexSnapshotStore:
-    """Live `paused_runs` seam — durable snapshot store over the Convex SoT, a drop-in for
-    MemorySnapshotStore. Reuses `runtime.memory._post`, so it inherits BOTH the credential gate
-    (refuses without CONVEX_DEPLOYMENT_URL / CONVEX_SITE_URL) AND the L4 fail-closed scope guard
-    (refuses a blank tenant/seat — a blank neopId would silently escalate to _admin server-side).
-    Therefore it is offline-gradeable — `constructs + refuses without creds` — and only touches the
-    network when a live deployment is configured.
+    """Live `paused_runs` seam — PER-TENANT durable snapshot store over the Convex SoT, a drop-in for
+    MemorySnapshotStore. Reuses `runtime.memory._post` (so it inherits the credential gate + the L4
+    fail-closed scope guard) and only touches the network when a live deployment is configured.
 
-    Scope (palaceId, neopId) is BAKED at construction — never taken from the model — matching the
-    broker identity invariant. GATED until the Convex tools `palace_save_paused_run` /
-    `palace_get_paused_run` ship (Mempalace `paused_runs` schema + functions) and a deploy is live."""
+    Grain aligned to the per-tenant ApprovalBroker: **palaceId is baked (the tenant); per-run scope
+    (neopId) is NOT baked — it is provenance**:
+      - save   writes the row under the snapshot's OWN seat (`state["seat"]`) — the row records who paused.
+      - load / resolve key by (palaceId, runId); the SERVER reads neopId FROM the row (`by_palace_run`),
+        NEVER from the caller. So "resume this paused run" can't become "resume any run I name" — the
+        caller supplies only runId; the scope is the row's, server-written at save. Same provenance-
+        not-assertion invariant as the twin keying. `operator_neop` is the load/resolve envelope identity
+        (the resume/operator context) — it satisfies the perm gate, it does NOT key the row."""
 
     SAVE_TOOL = "palace_save_paused_run"
     LOAD_TOOL = "palace_get_paused_run"
+    RESOLVE_TOOL = "palace_resolve_paused_run"
 
-    def __init__(self, palace_id, neop_id):
-        self.palace_id, self.neop_id = palace_id, neop_id
+    def __init__(self, palace_id, *, operator_neop="_admin"):
+        self.palace_id = palace_id
+        self.operator_neop = operator_neop
 
     def save(self, run_id, state):
         from runtime.memory import _post   # lazy: import cost + credential gate only on live use
-        _post(self.SAVE_TOOL, self.palace_id, self.neop_id, {"runId": run_id, "state": state})
+        seat = (state or {}).get("seat")    # provenance — the row records the seat that paused
+        _post(self.SAVE_TOOL, self.palace_id, seat, {"runId": run_id, "state": state})
 
     def load(self, run_id):
         from runtime.memory import _post
-        data = _post(self.LOAD_TOOL, self.palace_id, self.neop_id, {"runId": run_id})
+        # keyed by (palaceId, runId); the server reads neopId FROM the row — caller can't substitute scope.
+        data = _post(self.LOAD_TOOL, self.palace_id, self.operator_neop, {"runId": run_id})
         state = data.get("state") if isinstance(data, dict) else None
         if state is None:
             raise KeyError(f"no paused run {run_id!r} in Convex paused_runs")
         return state
 
-    RESOLVE_TOOL = "palace_resolve_paused_run"
-
     def resolve(self, run_id, status="resolved"):
-        """Flip the pause pending→resolved|denied so the Decision Queue stops showing it."""
         from runtime.memory import _post
-        _post(self.RESOLVE_TOOL, self.palace_id, self.neop_id, {"runId": run_id, "status": status})
+        _post(self.RESOLVE_TOOL, self.palace_id, self.operator_neop, {"runId": run_id, "status": status})
 
 
 class ApprovalBroker:
