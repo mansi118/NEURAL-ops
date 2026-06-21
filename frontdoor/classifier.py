@@ -8,6 +8,7 @@ mode decides recorded vs live.
 """
 from __future__ import annotations
 import os, json, pathlib
+from runtime import secrets  # S0.2: credentials resolve via env → keyring → refuse
 
 __all__ = ["ClassifierError", "live_classifier", "bedrock_classifier", "gemini_classifier",
            "openrouter_classifier", "catalog_from_agents", "BEDROCK_HAIKU", "GEMINI_MODEL",
@@ -84,7 +85,7 @@ def gemini_classifier(catalog, model_id=None):
     model_id = model_id or os.environ.get("GEMINI_MODEL_ID", GEMINI_MODEL)
 
     def fn(text):
-        key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        key = secrets.get("GEMINI_API_KEY", required=False) or secrets.get("GOOGLE_API_KEY", required=False)
         if not key:
             raise ClassifierError("GEMINI_API_KEY not set — required for the Gemini classifier")
         import urllib.request, urllib.error, time  # lazy
@@ -131,7 +132,7 @@ def openrouter_classifier(catalog, model_id=None):
     model_id = model_id or os.environ.get("OPENROUTER_MODEL_ID", OPENROUTER_MODEL)
 
     def fn(text):
-        key = os.environ.get("OPENROUTER_API_KEY")
+        key = secrets.get("OPENROUTER_API_KEY", required=False)
         if not key:
             raise ClassifierError("OPENROUTER_API_KEY not set — required for the OpenRouter classifier")
         import urllib.request, urllib.error, time  # lazy
@@ -196,7 +197,7 @@ def catalog_from_agents(agents_dir="agents", only=None):
 def live_classifier(catalog, model_id="claude-haiku-4-5"):
     """Return fn(text) -> (neop, confidence) backed by a live Haiku-class model."""
     def fn(text):
-        key = os.environ.get("ANTHROPIC_API_KEY")
+        key = secrets.get("ANTHROPIC_API_KEY", required=False)
         if not key:
             raise ClassifierError("ANTHROPIC_API_KEY not set — required for the live classifier")
         import anthropic  # lazy
