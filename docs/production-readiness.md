@@ -7,7 +7,7 @@
 > agent **builds to the walls and cannot declare it**. This ledger tracks every deliverable to that gate.
 
 ## Verification evidence (2026-06-21, against the self-hosted convex-local-backend)
-- NEURAL-ops python sweep **18/18**; Mempalace vitest **95 pass | 1 skip** at every merge; L2 `bridge_identity` **5/5**.
+- NEURAL-ops python sweep **19/19**; Mempalace vitest **95 pass | 1 skip** at every merge; L2 `bridge_identity` **5/5**.
 - **Live, against the real /mcp dispatcher (not simulated):** dogfish cross-seat ACL **4/4**; edge-auth +
   audit **7/7**; full E2E process (forged inbound → edge-auth → broker.write/retrieve → broker
   denied_at_layer → audit) **8/8**. `tsc` green both repos.
@@ -16,8 +16,11 @@
   end-to-end via the actual `_emit_external_denial` Python path (bridge → `/external-denial` → audit).
 - **Twin = identity, per-user — LIVE-proven:** a **permission-less** seat reads+writes its **own** twin while
   the **same seat is still denied a memory op** (`palace_search`) — the B2 carve-out is exactly twin-specific.
+- **Decision Queue + broker emit — LIVE-proven (completeness pass):** `pendingPausedRuns` save→count 1→
+  resolve→count 0 (the human-in-the-loop loop); a real runtime broker denial → `denialsByLayer.broker` 0→1.
 - ⇒ The **security / identity / audit / governance spine is built, merged, and LIVE-proven** — and the
-  approval engine now has a live, durable consumer.
+  approval engine now has a live, durable consumer. (Honest edge: edge-layer denial *emit* is the one named
+  remaining audit gap — classifies but can't key yet; see P2 + cross-cutting.)
 
 ## Phase ledger
 
@@ -34,9 +37,13 @@
    TLS (ACM/443) · Synapse hosts · DR backups.
 
 ### P2 — Governance + multi-tenant (the critical-path gate) — ACTIVATED this session
-✅ approval-policy engine (GW-4/5/6, `acp/approval.py`) · **4-layer ACL all emitting + LIVE-proven**
-   (edge · broker · convex_sot · falkordb) — L2 enforcement core + bridge wiring **merged** (5 endpoints
-   incl `graph_stats`, default-off, Mempalace PR #18).
+✅ approval-policy engine (GW-4/5/6, `acp/approval.py`) · **4-layer ACL enforcing; 3/4 layers EMIT to the
+   unified audit from production code + LIVE-proven** — `convex_sot` (native), `falkordb` (bridge
+   `_emit_external_denial`, Mempalace PR #20), `broker` (runtime `audit_emit`, PR #27 — live: broker
+   denial → `denialsByLayer.broker` 0→1). L2 enforcement core + bridge wiring merged (5 endpoints incl
+   `graph_stats`, Mempalace PR #18). **EDGE layer: classifies (`denied_at_layer=edge`) but does NOT yet
+   emit** — `resolve_edge_identity` fails before resolving tenant-name→palaceId, so it has no key; needs a
+   name→palaceId resolver at the edge seam (🔨, named below — NOT faked).
 ✅ **`AwaitingApproval` run-state WIRED** (NEURAL-ops PR #17) — the one sanctioned `core.py` change, to a
    reviewed transition spec: `AWAITING_APPROVAL` non-terminal pause, two in-edges (EXECUTING/PLANNING) +
    three-way gate (ALLOW/AWAIT/DENY→REJECTED), durable `to_state`/resume, GW-5 hard-deny re-checked on grant.
@@ -60,8 +67,11 @@
    (memory ops keep deriving seat) — pinned in `docs/decisions/twin-keying.md`, not hidden.
 
 ### P3 — Live comms + UI 🔨/⛔
+✅ **Decision Queue read API + resume-resolve loop** — `pendingPausedRuns` (lists pending pauses, surfaces
+   the gated action) + `markPausedRun` + runtime resolve-on-resume (Mempalace #22, NEURAL-ops #26);
+   live-proven (save→queue count 1→resolve→0). The human-in-the-loop backend AwaitingApproval serves.
 🔨 nc-channels Matrix AS adapter + normalization + HMAC + attachments; streaming transport; nc-web
-   (Decision Queue + dashboard); nc-admin.
+   **UI** over the Decision Queue API + dashboard over `denialsByLayer`; nc-admin.
 ⛔ live Synapse homeserver(s); domain/DNS/TLS.
 
 ### P4 — Learning loop / the twin product (logic BUILT · meta-NEops WRAPPED; remaining = live-gated wiring)
@@ -90,8 +100,9 @@
 ⛔ NE-QuickBuild auto-deploy = highest-risk; Integration-Receipt Allowlist policy sign-off.
 
 ## Cross-cutting gates
-- **Security:** ✅ 4-layer ACL emitting **+ all 4 layers live-proven** (edge/broker/convex_sot/falkordb,
-  the last via the `/external-denial` sink → `denialsByLayer`) · ✅ secrets-out-of-code (S0.2) ·
+- **Security:** ✅ 4-layer ACL **enforcing**; **3/4 layers emit** to the unified audit from production code,
+  live-proven (convex_sot/falkordb/broker via `denialsByLayer`) · 🔨 **edge** emit (needs a name→palaceId
+  resolver at the edge seam — classifies but can't key yet) · ✅ secrets-out-of-code (S0.2) ·
   ✅ approval mediation wired (AwaitingApproval) · 🔨 Ed25519 ACP signing wired live · ⛔ pen-test ·
   ⛔ mTLS/TLS1.3/Megolm (infra).
 - **Reliability (SLOs):** chat p95 ≤2s / NEop run p95 ≤60s / retrieval p95 ≤1.2s — measurable only on the
@@ -105,7 +116,7 @@
 | ≥3 NEops/seat in regular use | 🔨 P5 re-wrap, then ⛔ usage |
 | twin fidelity ≥0.65 | ✅ measures the **person** now (per-user twin) · 🔨 P4 fidelity clock · ⛔ usage outcome |
 | chat p95 ≤2s / NEop run p95 ≤60s | ⛔ deployed-stack measurement |
-| **zero tenant-isolation violations 30d** | ✅ mechanism live-proven (4-layer ACL + audit replay via `denialsByLayer`, all 4 layers) — needs ⛔ 30d live window |
+| **zero tenant-isolation violations 30d** | ✅ mechanism live-proven (4-layer ACL enforcing + audit replay via `denialsByLayer`, 3/4 layers emit; edge-emit 🔨) — needs ⛔ 30d live window |
 | 6 meta-NEops live · dashboard · pen-test | ✅ 4 meta-NEops wrapped (+ approval/edge meta-seams) · 🔨 dashboard · ⛔ live binding + pen-test |
 
 ## Critical path to V1
@@ -115,13 +126,17 @@ config) and **infra**, both human-gated.
 **Human (⛔), unblocks the most:** PAT rotation (30s, first) · **the governance flip** (minimal policy +
 env toggles for the dogfood tenant — its whole seam is now live-proven) · embedder key · AWS infra +
 `terraform apply` (→ P1, live P3, CMK) · Synapse hosts · policy sign-offs · pen-test/DR drill.
-**Agent (🔨), what's left:** P3 nc-* services (Decision-Queue/dashboard over `paused_runs` + `denialsByLayer`) ·
-P5 fleet re-wrap (Recon/ICD/CoS/TeamPulse onto the proven wrapper recipe) · P6 platform layers · OPA/Rego code.
+**Agent (🔨), what's left:** **edge denial emit** (a name→palaceId resolver at the edge seam — the 4th audit
+layer) · P3 nc-web **UI** over the Decision-Queue API + dashboard over `denialsByLayer` · nc-channels Matrix
+adapter · P5 fleet re-wrap (Recon/ICD/CoS/TeamPulse onto the proven recipe) · P6 platform layers · OPA/Rego code.
 
 ## Verdict
-The **identity / audit / governance spine is production-grade, live-verified, and now ACTIVATED** — the
-approval engine has a durable consumer (AwaitingApproval ↔ `paused_runs`), all 4 ACL layers emit live, and
-all 4 meta-NEops are wrapped. Reaching V1 now needs (a) the human ⛔ gates — chiefly the **governance flip**
-(cheap, its seam is proven), the embedder, and infra — and (b) the remaining **agent product-build (P3 nc-*
-+ P5 fleet)**, a multi-session effort. No part of "production-ready" is faked; every item below the flip has
-an owner and an acceptance criterion above, and what could be proven offline or on the self-host has been.
+The **identity / audit / governance spine is production-grade, live-verified, and ACTIVATED** — the approval
+engine has a durable consumer (AwaitingApproval ↔ `paused_runs`) with the human-in-the-loop **Decision Queue
+loop live-proven**, **3/4 ACL layers emit** to the unified audit live (edge-emit named below), and all 4
+meta-NEops are wrapped. Reaching V1 needs (a) the human ⛔ gates — chiefly the **governance flip** (cheap, its
+seam is proven), the embedder, and infra — and (b) the remaining **agent product-build (edge-emit + P3 nc-web/
+channels + P5 fleet)**, a multi-session effort. **"Production-ready" is the Day-90 live gate — inherently
+human, NOT agent-declarable; this ledger does not claim it.** No part is faked; every item has an owner and an
+acceptance criterion, and what could be proven offline or on the self-host has been — including the gaps this
+completeness pass found (the Decision Queue read, the broker emit) and the one it could only name (edge emit).
