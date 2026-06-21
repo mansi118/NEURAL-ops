@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars and fill in. NO SECRET VALUES here — secrets are set post-apply via
+# Secrets Manager (see README). This file holds only non-sensitive config.
+
+project        = "neos"
+environment    = "dogfood"
+region         = "ap-south-1"
+
+# Build + push the runtime image (S0.1 Dockerfile) to ECR, then put its URI here:
+runtime_image  = "123456789012.dkr.ecr.ap-south-1.amazonaws.com/neos-runtime:latest"
+
+# The Convex .convex.site URL the broker targets (self-host proxy or cloud deploy):
+convex_site_url = "https://your-deployment.convex.site"
+
+desired_count  = 1
+task_cpu       = 512
+task_memory    = 1024
