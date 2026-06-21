@@ -1,0 +1,1 @@
+{"tasks": [{"task_id": "resolve", "tool": "resolve_hierarchy", "depends_on": []}]}
