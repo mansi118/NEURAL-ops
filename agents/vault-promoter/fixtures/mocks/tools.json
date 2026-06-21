@@ -1,0 +1,31 @@
+{
+  "vault_promote": {
+    "decision": "promote",
+    "reason": "all gates passed",
+    "gates": {
+      "VL-1": "pass",
+      "VL-2": "clean",
+      "VL-3": "pass",
+      "VL-4": "approved",
+      "VL-5": "armed"
+    },
+    "key": "opp-9931",
+    "record": {
+      "content": "Acme renewed the enterprise contract for FY27 at 240k ARR.",
+      "category": "fact",
+      "confidence": 0.82,
+      "provenance": {
+        "source_adapter": "salesforce",
+        "source_external_id": "opp-9931",
+        "author_type": "human",
+        "author_id": "ml",
+        "created_at": 1700000000
+      },
+      "pii_redacted": [],
+      "rollback_armed": true,
+      "do_not_re_promote": true,
+      "promoted_at": "2026-01-01T00:00:00Z",
+      "rollback_ttl_days": 30
+    }
+  }
+}

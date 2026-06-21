@@ -1,0 +1,23 @@
+{
+  "chunks": [
+    {
+      "id": "opp-9931",
+      "tenant": "neuraledge",
+      "text": "Acme renewed the enterprise contract for FY27 at 240k ARR.",
+      "score": 0.82,
+      "category": "fact",
+      "source_adapter": "salesforce",
+      "confidence": 0.82
+    }
+  ],
+  "provenance": [
+    {
+      "id": "opp-9931",
+      "source_adapter": "salesforce",
+      "source_external_id": "opp-9931",
+      "author_type": "human",
+      "author_id": "ml",
+      "created_at": 1700000000
+    }
+  ]
+}

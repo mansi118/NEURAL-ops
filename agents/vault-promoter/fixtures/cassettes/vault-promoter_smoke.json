@@ -1,0 +1,14 @@
+{
+  "plan:vault-promoter": {
+    "tasks": [
+      {
+        "task_id": "promote_candidate",
+        "tool": "vault_promote",
+        "depends_on": []
+      }
+    ]
+  },
+  "verify:vault-promoter": {
+    "pass": true
+  }
+}
