@@ -31,8 +31,24 @@ resource "aws_lb_listener" "http" {
   port              = 80
   protocol          = "HTTP"
 
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.runtime.arn
+  # TLS on (tls.tf) ⇒ 80 redirects to 443; TLS off ⇒ 80 forwards to the runtime (dev/HTTP-only).
+  dynamic "default_action" {
+    for_each = local.tls_enabled ? [1] : []
+    content {
+      type = "redirect"
+      redirect {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
+    }
+  }
+
+  dynamic "default_action" {
+    for_each = local.tls_enabled ? [] : [1]
+    content {
+      type             = "forward"
+      target_group_arn = aws_lb_target_group.runtime.arn
+    }
   }
 }

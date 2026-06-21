@@ -129,3 +129,16 @@ variable "enable_bedrock" {
   type        = bool
   default     = true
 }
+
+# ── TLS (gated: both must be set, else ALB stays HTTP-only) ──────
+variable "domain_name" {
+  description = "FQDN for the ALB (e.g. gateway.neuraledge.in). Blank ⇒ no TLS (HTTP-only, dev)."
+  type        = string
+  default     = ""
+}
+
+variable "route53_zone_id" {
+  description = "Route53 hosted-zone id for DNS validation + the A-alias. Blank ⇒ no TLS."
+  type        = string
+  default     = ""
+}
