@@ -136,6 +136,23 @@ def test_7_convex_snapshot_store_seam_offline_gradeable():
     print("PASS test_7_convex_snapshot_store_seam")
 
 
+def test_8_decision_queue_lifecycle_resolved_on_resume():
+    # A pause is PENDING until resumed; a grant resolves it, a deny marks it denied — so the Decision
+    # Queue (pending()) reflects only what still awaits a human.
+    ap = AG.ApprovalBroker(ApprovalPolicy(scope_modes={"plan": "allow", "tool": "ask"}), grants={"echo_tool": "allow"})
+    _disp(ap)
+    assert RUN_ID in ap.pending(), "the pause must show in the Decision Queue"
+    assert _resume(ap)["state"] == "DONE"
+    assert RUN_ID not in ap.pending(), "a granted+resumed pause must leave the queue"
+
+    ap2 = AG.ApprovalBroker(ApprovalPolicy(scope_modes={"plan": "allow", "tool": "ask"}), grants={"echo_tool": "deny"})
+    _disp(ap2)
+    assert RUN_ID in ap2.pending()
+    assert _resume(ap2)["state"] == "REJECTED"
+    assert RUN_ID not in ap2.pending(), "a denied+resumed pause must also leave the queue"
+    print("PASS test_8_decision_queue_lifecycle")
+
+
 if __name__ == "__main__":
     for n, f in sorted(globals().items()):
         if n.startswith("test_") and callable(f):
