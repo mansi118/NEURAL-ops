@@ -13,7 +13,7 @@ import json
 import os
 import urllib.request
 
-__all__ = ["emit_external_denial"]
+__all__ = ["emit_external_denial", "emit_edge_denial"]
 
 
 def emit_external_denial(palace_id, layer, *, neop_id=None, op=None, reason="", extra=None):
@@ -44,3 +44,23 @@ def emit_external_denial(palace_id, layer, *, neop_id=None, op=None, reason="", 
         urllib.request.urlopen(req, timeout=3).close()  # noqa: S310 (trusted internal sink)
     except Exception:
         pass  # best-effort: the audit emit must never break the denial path
+
+
+def emit_edge_denial(rejection, *, resolve_palace_id):
+    """Route an EDGE denial to the unified audit — the missing 4th layer (closes #12). The edge lacks
+    a palaceId at rejection time (it fails before resolving the tenant NAME), so we resolve it here via
+    the injected `resolve_palace_id(tenant_name) -> palaceId | None` (e.g. palace/queries:getPalaceByClient).
+    Best-effort + offline-safe: no-op if the tenant is absent or unresolvable. Use as the `on_reject`
+    seam of acp.edge_auth.resolve_edge_identity."""
+    audit = getattr(rejection, "audit", rejection) or {}
+    tenant = audit.get("tenant")
+    if not (isinstance(tenant, str) and tenant.strip()):
+        return
+    try:
+        palace_id = resolve_palace_id(tenant)
+    except Exception:
+        palace_id = None
+    if not palace_id:
+        return
+    emit_external_denial(palace_id, "edge", neop_id=audit.get("claimed"),
+                         reason=f"edge: {audit.get('reason')}")

@@ -85,7 +85,29 @@ def assert_no_reserved_claim(inbound: dict) -> None:
 
 # ─── E3 (+ E4 tenant binding): edge resolver ─────────────────────────────────
 
-def resolve_edge_identity(inbound, *, as_context, verify_hmac, resolve_binding):
+def resolve_edge_identity(inbound, *, as_context, verify_hmac, resolve_binding, on_reject=None):
+    """Edge identity resolution + the EDGE audit emit seam.
+
+    `on_reject(EdgeRejected)` (optional) routes every refusal to the unified audit (closes #12 —
+    `denied_at_layer=edge` → `denialsByLayer`). It is best-effort: any error in it is swallowed, and
+    the rejection is re-raised unchanged. When omitted, behaviour is byte-identical. Before calling it
+    we enrich the rejection's `tenant` from the AS namespace when the binding itself failed (so the
+    denial can be keyed name→palaceId even on `bad_adapter_hmac`/`unknown_user`). See the inner fn."""
+    try:
+        return _resolve_edge_identity_inner(
+            inbound, as_context=as_context, verify_hmac=verify_hmac, resolve_binding=resolve_binding)
+    except EdgeRejected as e:
+        if on_reject is not None:
+            if e.audit.get("tenant") is None:
+                e.audit["tenant"] = (as_context or {}).get("tenant_id")
+            try:
+                on_reject(e)
+            except Exception:
+                pass        # the audit emit must never change the edge decision
+        raise
+
+
+def _resolve_edge_identity_inner(inbound, *, as_context, verify_hmac, resolve_binding):
     """Produce a canonical envelope whose identity is provably credential-derived.
 
       as_context:  {"mxid": <AS-verified>, "tenant_id": <from the delivering AS namespace>}
