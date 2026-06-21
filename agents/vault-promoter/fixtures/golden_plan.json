@@ -1,0 +1,9 @@
+{
+  "tasks": [
+    {
+      "task_id": "promote_candidate",
+      "tool": "vault_promote",
+      "depends_on": []
+    }
+  ]
+}
