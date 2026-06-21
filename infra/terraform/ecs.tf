@@ -1,6 +1,7 @@
 resource "aws_cloudwatch_log_group" "runtime" {
   name              = "/ecs/${local.name}-runtime"
   retention_in_days = 30
+  kms_key_id        = aws_kms_key.main.arn
 }
 
 resource "aws_ecs_cluster" "main" {

@@ -86,3 +86,46 @@ variable "health_check_path" {
   type        = string
   default     = "/health"
 }
+
+# ── Bridge (L2 Graphiti) + FalkorDB ─────────────────────────────
+variable "bridge_image" {
+  description = "Container image for the Graphiti bridge (ECR URI). Built from Mempalace services/Dockerfile."
+  type        = string
+  default     = "PLACEHOLDER.dkr.ecr.ap-south-1.amazonaws.com/neos-bridge:latest"
+}
+
+variable "falkordb_image" {
+  description = "FalkorDB image (Redis-compatible graph; advisory layer, sidecar of the bridge task)."
+  type        = string
+  default     = "falkordb/falkordb:latest"
+}
+
+variable "bridge_container_port" {
+  description = "Port the bridge listens on."
+  type        = number
+  default     = 8000
+}
+
+variable "bridge_task_cpu" {
+  description = "Fargate CPU for the bridge task (bridge + FalkorDB sidecar)."
+  type        = number
+  default     = 1024
+}
+
+variable "bridge_task_memory" {
+  description = "Fargate memory (MiB) for the bridge task."
+  type        = number
+  default     = 2048
+}
+
+variable "enable_bridge_identity" {
+  description = "L2 tenant-scope enforcement at the bridge (BRIDGE_IDENTITY_ENABLED). Default off — flipped at activation."
+  type        = bool
+  default     = false
+}
+
+variable "enable_bedrock" {
+  description = "Grant the task role bedrock:InvokeModel (embeddings via Titan). Off if self-hosting the embedder."
+  type        = bool
+  default     = true
+}
