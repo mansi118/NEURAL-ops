@@ -142,3 +142,16 @@ variable "route53_zone_id" {
   type        = string
   default     = ""
 }
+
+# ── Comms/audit/event tier ──────────────────────────────────────
+variable "redis_node_type" {
+  description = "ElastiCache Redis node type."
+  type        = string
+  default     = "cache.t4g.micro"
+}
+
+variable "nats_image" {
+  description = "NATS server image (event bus)."
+  type        = string
+  default     = "nats:2-alpine"
+}
