@@ -1,0 +1,59 @@
+# S0.1 — unified NEOS substrate: Pi runtime + broker, the FalkorDB + Graphiti bridge
+# stack, wired to the live MemPalace SoT (Convex). Top-level, IMAGE-FIRST topology:
+# each repo's CI builds + publishes its own image; this compose pulls them. The two
+# repos stay independent — NO relative cross-repo source-path coupling. The runtime's
+# `build: .` below is a stopgap for local iteration; switch to the published image
+# once NEURAL-ops CI publishes it.
+#
+# Secrets are INJECTED, never baked: `${VAR}` env injection now (interim), swappable to
+# Docker secrets (/run/secrets, the entrypoint already loads them) or AWS Secrets Manager
+# in S0.2 with NO image rebuild. Required vars use `:?` so compose REFUSES (not silent)
+# when they're absent — matching the container's own boot self-check.
+
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    ports:
+      - "6379:6379"
+      - "3000:3000"     # FalkorDB Browser
+    volumes:
+      - falkordb_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  bridge:
+    # Published by Mempalace_NEOS CI (services/Dockerfile). No cross-repo source path.
+    # For purely-local iteration before CI publishes, run Mempalace's own compose instead.
+    image: ghcr.io/mansi118/mempalace-bridge:latest
+    ports:
+      - "8100:8100"
+    environment:
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: "6379"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY (direct Anthropic primary)}
+      PALACE_BRIDGE_API_KEY: ${PALACE_BRIDGE_API_KEY:-dev-key-change-me}
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  runtime:
+    # Stopgap local build; target = image: ghcr.io/mansi118/neuralops-runtime:latest (CI-published).
+    build: .
+    environment:
+      CONVEX_SITE_URL: ${CONVEX_SITE_URL:?set CONVEX_SITE_URL to the live .convex.site (dogfish)}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY (direct Anthropic primary)}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}   # classifier fallback (optional)
+      GRAPHITI_BRIDGE_URL: http://bridge:8100
+      CLASSIFIER_PROVIDER: anthropic                # direct Anthropic primary; OpenRouter = fallback
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  falkordb_data:

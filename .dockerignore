@@ -1,0 +1,11 @@
+# Never bake secrets or local cruft into the image.
+.env
+.env.*
+.git
+.github
+**/__pycache__
+**/*.pyc
+tests
+docs
+nrt/__pycache__
+*.md
