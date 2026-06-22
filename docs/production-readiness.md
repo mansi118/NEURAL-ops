@@ -47,14 +47,13 @@
    a Postgres-backend SWAP is a prerequisite for multi-instance, not a tuning knob) · Redis HA (replica+failover) ·
    NATS JetStream durability (EFS) · Synapse PUBLIC client-API ingress (ALB host rule + federation) · RDS multi-AZ.
 
-### P2 — Governance + multi-tenant (the critical-path gate) — ACTIVATED this session
-✅ approval-policy engine (GW-4/5/6, `acp/approval.py`) · **4-layer ACL enforcing; 3/4 layers EMIT to the
-   unified audit from production code + LIVE-proven** — `convex_sot` (native), `falkordb` (bridge
-   `_emit_external_denial`, Mempalace PR #20), `broker` (runtime `audit_emit`, PR #27 — live: broker
-   denial → `denialsByLayer.broker` 0→1). L2 enforcement core + bridge wiring merged (5 endpoints incl
-   `graph_stats`, Mempalace PR #18). **EDGE layer: classifies (`denied_at_layer=edge`) but does NOT yet
-   emit** — `resolve_edge_identity` fails before resolving tenant-name→palaceId, so it has no key; needs a
-   name→palaceId resolver at the edge seam (🔨, named below — NOT faked).
+### P2 — Governance + multi-tenant (the critical-path gate) — WIRED + ACTIVATED-READY
+✅ approval-policy engine (GW-4/5/6, `acp/approval.py`) · **4-layer ACL enforcing; ALL 4 layers EMIT to the
+   unified audit from production code + LIVE-proven** — `convex_sot` (native) · `falkordb` (bridge
+   `_emit_external_denial`, Mempalace #20) · `broker` (runtime `audit_emit`, #27) · **`edge`** (the
+   `on_reject` seam + `emit_edge_denial` resolving tenant-name→palaceId, NEURAL-ops #30 — live:
+   `denialsByLayer.edge` 0→2; the emit runs OFF the rejection's critical path, verified by absence = no
+   tenant-existence timing oracle). L2 enforcement + bridge wiring merged (Mempalace #18). **#12 closed.**
 ✅ **`AwaitingApproval` run-state WIRED** (NEURAL-ops PR #17) — the one sanctioned `core.py` change, to a
    reviewed transition spec: `AWAITING_APPROVAL` non-terminal pause, two in-edges (EXECUTING/PLANNING) +
    three-way gate (ALLOW/AWAIT/DENY→REJECTED), durable `to_state`/resume, GW-5 hard-deny re-checked on grant.
@@ -70,20 +69,27 @@
    `palace_put_twin` ungated from recall/remember via `identityOnlyPerms`, own-twin = exact server-derived
    `neopId`. Working memory stays per-seat. Security linchpin: `requester` is server-derived (edge-auth E1–E5,
    unforgeable). `test_twin_keying.py` 4/4 incl. *two distinct NEops + same requester share ONE twin*.
-⛔ **The flip itself** (minimal approval policy + `BRIDGE_IDENTITY_ENABLED`/`CONVEX_DENIAL_SINK_URL` on +
-   inject `ApprovalBroker(policy, store=ConvexSnapshotStore(...))` for the dogfood tenant) · OPA/Rego
-   **policy sign-off** · KMS CMK · `X-NEop-Identity` signing scheme (HMAC/Ed25519) · pen-test.
-   **Named forward-dependency (Gate D / S0.3):** twin-keying is broker-trusted today (broker sets `requester`
-   from the verified identity); when signed-identity lands, twin ops must derive the **requester** server-side
-   (memory ops keep deriving seat) — pinned in `docs/decisions/twin-keying.md`, not hidden.
+✅ **flip-as-config WIRED** — `frontdoor/orchestrator.py handle(..., approval=None)` threads the broker into
+   dispatch (#34); `build_approval(policy_config, *, mode, palace_id, grants, grantor)` constructs it from a
+   policy CONFIG (store by mode; #35). Governance turns on for a tenant by supplying a policy, off by passing
+   nothing (byte-identical) — **config, not a code edit.** GRANTOR is a named forward-dependency (not defaulted
+   to an asserted "ml"; server-derive from the grant action when >1 granter). v1 policy spec: `docs/decisions/approval-policy-v1.md`.
+⛔ **The flip itself** (set the v1 policy + `BRIDGE_IDENTITY_ENABLED`/`CONVEX_DENIAL_SINK_URL` on for the dogfood
+   tenant — now just config toggles, the seam is wired+proven) · OPA/Rego **policy sign-off** · KMS CMK is built
+   (#31) but the `X-NEop-Identity` signing scheme (HMAC/Ed25519) + pen-test remain.
+   **Named forward-dependency (Gate D / S0.3):** twin-keying is broker-trusted today; when signed-identity lands,
+   twin ops must derive the **requester** server-side (memory ops keep deriving seat) — `docs/decisions/twin-keying.md`.
 
 ### P3 — Live comms + UI 🔨/⛔
 ✅ **Decision Queue read API + resume-resolve loop** — `pendingPausedRuns` (lists pending pauses, surfaces
    the gated action) + `markPausedRun` + runtime resolve-on-resume (Mempalace #22, NEURAL-ops #26);
    live-proven (save→queue count 1→resolve→0). The human-in-the-loop backend AwaitingApproval serves.
-🔨 nc-channels Matrix AS adapter + normalization + HMAC + attachments; streaming transport; nc-web
-   **UI** over the Decision Queue API + dashboard over `denialsByLayer`; nc-admin.
-⛔ live Synapse homeserver(s); domain/DNS/TLS.
+✅ **Comms/audit/event tier in Terraform** (validate-clean, #37): Synapse(+RDS Postgres) · ClickHouse
+   (audit-at-scale) · NATS (event bus) · ElastiCache (Redis) — all internal Cloud Map; Synapse PUBLIC
+   client-API ingress is a named activation step (ALB host rule + TLS + federation), not built.
+🔨 nc-channels Matrix AS adapter (app code) + normalization + HMAC; streaming transport; nc-web **UI**
+   over the Decision Queue API + dashboard over `denialsByLayer`; nc-admin. (Service CODE, not infra.)
+⛔ `terraform apply` for the above · domain/DNS/TLS values.
 
 ### P4 — Learning loop / the twin product (logic BUILT · meta-NEops WRAPPED; remaining = live-gated wiring)
 ✅ **Meta-NEop logic exists + tested**: `runtime/vault.py` (5-gate `promote`/rollback) · `runtime/curator.py`
@@ -111,11 +117,10 @@
 ⛔ NE-QuickBuild auto-deploy = highest-risk; Integration-Receipt Allowlist policy sign-off.
 
 ## Cross-cutting gates
-- **Security:** ✅ 4-layer ACL **enforcing**; **3/4 layers emit** to the unified audit from production code,
-  live-proven (convex_sot/falkordb/broker via `denialsByLayer`) · 🔨 **edge** emit (needs a name→palaceId
-  resolver at the edge seam — classifies but can't key yet) · ✅ secrets-out-of-code (S0.2) ·
-  ✅ approval mediation wired (AwaitingApproval) · 🔨 Ed25519 ACP signing wired live · ⛔ pen-test ·
-  ⛔ mTLS/TLS1.3/Megolm (infra).
+- **Security:** ✅ 4-layer ACL **enforcing + ALL 4 layers emit** to the unified audit from production code,
+  live-proven (convex_sot/falkordb/broker/edge via `denialsByLayer`; edge emit off the critical path) ·
+  ✅ secrets-out-of-code (S0.2) + KMS CMK (#31) · ✅ approval mediation wired (AwaitingApproval + flip-as-config) ·
+  🔨 Ed25519 ACP signing wired live · ⛔ pen-test · ⛔ mTLS/TLS1.3/Megolm (infra).
 - **Reliability (SLOs):** chat p95 ≤2s / NEop run p95 ≤60s / retrieval p95 ≤1.2s — measurable only on the
   deployed stack (⛔). DR drill ⛔.
 - **Compliance:** DPDP/residency/SOC2/ISO — ⛔ (org + infra).
