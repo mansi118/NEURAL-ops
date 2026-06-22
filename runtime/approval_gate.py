@@ -14,7 +14,8 @@ from __future__ import annotations
 from acp.approval import (Action, ApprovalPolicy, decide as _decide,  # noqa: F401
                           resolve_grant, ALLOW, DENY, AWAIT)
 
-__all__ = ["ApprovalBroker", "MemorySnapshotStore", "ConvexSnapshotStore", "ApprovalPolicy"]
+__all__ = ["ApprovalBroker", "MemorySnapshotStore", "ConvexSnapshotStore", "ApprovalPolicy",
+           "build_approval"]
 
 
 class MemorySnapshotStore:
@@ -130,3 +131,28 @@ class ApprovalBroker:
 
     def pending(self):
         return self.store.pending()
+
+
+def build_approval(policy_config, *, mode="unit", palace_id=None, grants=None, grantor=None):
+    """flip-as-config: construct a tenant's ApprovalBroker from a policy CONFIG — or return None
+    (governance OFF; dispatch(approval=None) is byte-identical). The store is picked by mode:
+    MemorySnapshotStore (unit) vs the per-tenant ConvexSnapshotStore (integration; requires palace_id).
+    Turning governance on for a tenant is supplying a policy config — not a code edit.
+
+    GRANTOR — forward-dependency, named not hidden: the grantor is the granting AUTHORITY recorded on a
+    grant. This builder deliberately does NOT default it — a hardcoded grantor is an ASSERTED identity,
+    the very thing scope-from-the-row / server-derived-requester made unrepresentable everywhere else.
+    Single-grantor dogfood: the caller passes its operator identity explicitly. The moment there is >1
+    granter, the grantor MUST be server-derived from the Decision-Queue grant action's verified identity,
+    threaded per-grant at resolve time — never baked here. (Pin in the PR + ledger when that lands.)"""
+    if not policy_config:
+        return None
+    policy = policy_config if isinstance(policy_config, ApprovalPolicy) else ApprovalPolicy(**policy_config)
+    if mode == "integration":
+        if not palace_id:
+            raise ValueError(
+                "build_approval(mode='integration') requires palace_id for the per-tenant ConvexSnapshotStore")
+        store = ConvexSnapshotStore(palace_id)
+    else:
+        store = MemorySnapshotStore()
+    return ApprovalBroker(policy, grants=grants, grantor=grantor, store=store)
