@@ -160,6 +160,29 @@ def test_8_decision_queue_lifecycle_resolved_on_resume():
     print("PASS test_8_decision_queue_lifecycle")
 
 
+def test_9_build_approval_off_and_store_by_mode():
+    b = AG.build_approval
+    assert b(None) is None and b({}) is None                 # no policy ⇒ OFF (byte-identical)
+    u = b({"scope_modes": {"tool": "ask"}}, mode="unit")
+    assert isinstance(u.store, AG.MemorySnapshotStore)        # unit ⇒ in-memory store
+    i = b({"scope_modes": {"tool": "ask"}}, mode="integration", palace_id="p1")
+    assert isinstance(i.store, AG.ConvexSnapshotStore) and i.store.palace_id == "p1"   # integration ⇒ per-tenant
+    try:
+        b({"scope_modes": {"tool": "ask"}}, mode="integration"); assert False   # integration needs palace_id
+    except ValueError:
+        pass
+    assert u.grantor is None                                  # NOT defaulted to an asserted identity ("ml")
+    print("PASS test_9_build_approval")
+
+
+def test_10_built_broker_gates_dispatch():
+    # A broker built from config actually gates a run (plan:ask ⇒ pause), and shows in the Decision Queue.
+    ap = AG.build_approval({"scope_modes": {"plan": "ask"}}, mode="unit")
+    assert _disp(ap)["state"] == "AWAITING_APPROVAL"
+    assert RUN_ID in ap.pending()
+    print("PASS test_10_built_broker_gates_dispatch")
+
+
 if __name__ == "__main__":
     for n, f in sorted(globals().items()):
         if n.startswith("test_") and callable(f):
