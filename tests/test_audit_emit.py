@@ -8,6 +8,8 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from runtime import audit_emit as AE  # noqa: E402
 
+AE._SYNC = True   # emits run inline + deterministic under test (prod dispatches off the critical path)
+
 
 def test_noop_without_config():
     for k in ("CONVEX_DENIAL_SINK_URL", "PALACE_BRIDGE_API_KEY"):
