@@ -78,7 +78,33 @@ variable "managed_secret_keys" {
     "EMBEDDER_API_KEY",
     "PALACE_BRIDGE_API_KEY",
     "CONVEX_SELF_HOSTED_ADMIN_KEY",
+    "CONVEX_INSTANCE_SECRET",
   ]
+}
+
+# ── Self-host Convex (the SoT) ──────────────────────────────────
+variable "convex_image" {
+  description = "Self-hosted Convex backend image (ECR or registry). The convex-local-backend."
+  type        = string
+  default     = "PLACEHOLDER.dkr.ecr.ap-south-1.amazonaws.com/neos-convex:latest"
+}
+
+variable "convex_instance_name" {
+  description = "Convex self-hosted instance name."
+  type        = string
+  default     = "neos-self-hosted"
+}
+
+variable "convex_task_cpu" {
+  description = "Fargate CPU for the Convex task."
+  type        = number
+  default     = 1024
+}
+
+variable "convex_task_memory" {
+  description = "Fargate memory (MiB) for the Convex task."
+  type        = number
+  default     = 2048
 }
 
 variable "health_check_path" {
