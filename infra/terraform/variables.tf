@@ -78,11 +78,147 @@ variable "managed_secret_keys" {
     "EMBEDDER_API_KEY",
     "PALACE_BRIDGE_API_KEY",
     "CONVEX_SELF_HOSTED_ADMIN_KEY",
+    "CONVEX_INSTANCE_SECRET",
   ]
+}
+
+# ── Self-host Convex (the SoT) ──────────────────────────────────
+variable "convex_image" {
+  description = "Self-hosted Convex backend image (ECR or registry). The convex-local-backend."
+  type        = string
+  default     = "PLACEHOLDER.dkr.ecr.ap-south-1.amazonaws.com/neos-convex:latest"
+}
+
+variable "convex_instance_name" {
+  description = "Convex self-hosted instance name."
+  type        = string
+  default     = "neos-self-hosted"
+}
+
+variable "convex_task_cpu" {
+  description = "Fargate CPU for the Convex task."
+  type        = number
+  default     = 1024
+}
+
+variable "convex_task_memory" {
+  description = "Fargate memory (MiB) for the Convex task."
+  type        = number
+  default     = 2048
 }
 
 variable "health_check_path" {
   description = "ALB target-group health check path."
   type        = string
   default     = "/health"
+}
+
+# ── Bridge (L2 Graphiti) + FalkorDB ─────────────────────────────
+variable "bridge_image" {
+  description = "Container image for the Graphiti bridge (ECR URI). Built from Mempalace services/Dockerfile."
+  type        = string
+  default     = "PLACEHOLDER.dkr.ecr.ap-south-1.amazonaws.com/neos-bridge:latest"
+}
+
+variable "falkordb_image" {
+  description = "FalkorDB image (Redis-compatible graph; advisory layer, sidecar of the bridge task)."
+  type        = string
+  default     = "falkordb/falkordb:latest"
+}
+
+variable "bridge_container_port" {
+  description = "Port the bridge listens on."
+  type        = number
+  default     = 8000
+}
+
+variable "bridge_task_cpu" {
+  description = "Fargate CPU for the bridge task (bridge + FalkorDB sidecar)."
+  type        = number
+  default     = 1024
+}
+
+variable "bridge_task_memory" {
+  description = "Fargate memory (MiB) for the bridge task."
+  type        = number
+  default     = 2048
+}
+
+variable "enable_bridge_identity" {
+  description = "L2 tenant-scope enforcement at the bridge (BRIDGE_IDENTITY_ENABLED). Default off — flipped at activation."
+  type        = bool
+  default     = false
+}
+
+variable "enable_bedrock" {
+  description = "Grant the task role bedrock:InvokeModel (embeddings via Titan). Off if self-hosting the embedder."
+  type        = bool
+  default     = true
+}
+
+# ── TLS (gated: both must be set, else ALB stays HTTP-only) ──────
+variable "domain_name" {
+  description = "FQDN for the ALB (e.g. gateway.neuraledge.in). Blank ⇒ no TLS (HTTP-only, dev)."
+  type        = string
+  default     = ""
+}
+
+variable "route53_zone_id" {
+  description = "Route53 hosted-zone id for DNS validation + the A-alias. Blank ⇒ no TLS."
+  type        = string
+  default     = ""
+}
+
+# ── Comms/audit/event tier ──────────────────────────────────────
+variable "redis_node_type" {
+  description = "ElastiCache Redis node type."
+  type        = string
+  default     = "cache.t4g.micro"
+}
+
+variable "nats_image" {
+  description = "NATS server image (event bus)."
+  type        = string
+  default     = "nats:2-alpine"
+}
+
+variable "clickhouse_image" {
+  description = "ClickHouse server image (audit-at-scale)."
+  type        = string
+  default     = "clickhouse/clickhouse-server:24-alpine"
+}
+variable "clickhouse_task_cpu" {
+  description = "Fargate CPU for ClickHouse."
+  type        = number
+  default     = 1024
+}
+variable "clickhouse_task_memory" {
+  description = "Fargate memory (MiB) for ClickHouse."
+  type        = number
+  default     = 4096
+}
+variable "synapse_image" {
+  description = "Matrix Synapse image (nc-channels homeserver)."
+  type        = string
+  default     = "matrixdotorg/synapse:latest"
+}
+variable "synapse_server_name" {
+  description = "Matrix server_name (e.g. neuraledge.in)."
+  type        = string
+  default     = "neuraledge.local"
+}
+variable "synapse_task_cpu" {
+  description = "Fargate CPU for Synapse."
+  type        = number
+  default     = 512
+}
+variable "synapse_task_memory" {
+  description = "Fargate memory (MiB) for Synapse."
+  type        = number
+  default     = 1024
+}
+variable "synapse_db_instance_class" {
+  description = "RDS instance class for the Synapse Postgres backend."
+  type        = string
+  default     = "db.t4g.micro"
 }

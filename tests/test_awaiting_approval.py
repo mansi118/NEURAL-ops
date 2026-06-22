@@ -116,21 +116,28 @@ def test_7_convex_snapshot_store_seam_offline_gradeable():
     no network, nothing faked. Live save/load is gated on Convex paused_runs functions + a deploy."""
     import os
     from runtime.memory import MemPalaceError
-    store = AG.ConvexSnapshotStore("palaceX", "seatY")
+    store = AG.ConvexSnapshotStore("palaceX")             # PER-TENANT (palaceId only; scope is per-run)
     ap = AG.ApprovalBroker(ApprovalPolicy(scope_modes={"tool": "ask"}), store=store)
     assert ap.store is store                              # drop-in for MemorySnapshotStore
     saved = dict(os.environ)
     for k in ("CONVEX_DEPLOYMENT_URL", "CONVEX_SITE_URL"):
         os.environ.pop(k, None)
     try:
+        # save keys the row by the snapshot's OWN seat (provenance); a valid seat → credential gate
         try:
-            store.save("rid", {"x": 1}); assert False, "must refuse without CONVEX_* creds"
+            store.save("rid", {"seat": "aria", "x": 1}); assert False, "must refuse without CONVEX_* creds"
         except MemPalaceError as e:
             assert "not set" in str(e)                    # credential gate, not a network attempt
+        # a snapshot with a blank seat → L4 fail-closed (no keyless/implicit-identity row)
         try:
-            AG.ConvexSnapshotStore("palaceX", "  ").save("rid", {"x": 1}); assert False
+            store.save("rid", {"seat": "  "}); assert False
         except MemPalaceError as e:
-            assert "denied_at_layer=broker" in str(e)     # L4 fail-closed: blank seat refused
+            assert "denied_at_layer=broker" in str(e)
+        # load keys by (palaceId, runId) under the operator identity (scope read from the row) → creds-gated
+        try:
+            store.load("rid"); assert False
+        except MemPalaceError as e:
+            assert "not set" in str(e)
     finally:
         os.environ.clear(); os.environ.update(saved)
     print("PASS test_7_convex_snapshot_store_seam")
@@ -151,6 +158,29 @@ def test_8_decision_queue_lifecycle_resolved_on_resume():
     assert _resume(ap2)["state"] == "REJECTED"
     assert RUN_ID not in ap2.pending(), "a denied+resumed pause must also leave the queue"
     print("PASS test_8_decision_queue_lifecycle")
+
+
+def test_9_build_approval_off_and_store_by_mode():
+    b = AG.build_approval
+    assert b(None) is None and b({}) is None                 # no policy ⇒ OFF (byte-identical)
+    u = b({"scope_modes": {"tool": "ask"}}, mode="unit")
+    assert isinstance(u.store, AG.MemorySnapshotStore)        # unit ⇒ in-memory store
+    i = b({"scope_modes": {"tool": "ask"}}, mode="integration", palace_id="p1")
+    assert isinstance(i.store, AG.ConvexSnapshotStore) and i.store.palace_id == "p1"   # integration ⇒ per-tenant
+    try:
+        b({"scope_modes": {"tool": "ask"}}, mode="integration"); assert False   # integration needs palace_id
+    except ValueError:
+        pass
+    assert u.grantor is None                                  # NOT defaulted to an asserted identity ("ml")
+    print("PASS test_9_build_approval")
+
+
+def test_10_built_broker_gates_dispatch():
+    # A broker built from config actually gates a run (plan:ask ⇒ pause), and shows in the Decision Queue.
+    ap = AG.build_approval({"scope_modes": {"plan": "ask"}}, mode="unit")
+    assert _disp(ap)["state"] == "AWAITING_APPROVAL"
+    assert RUN_ID in ap.pending()
+    print("PASS test_10_built_broker_gates_dispatch")
 
 
 if __name__ == "__main__":

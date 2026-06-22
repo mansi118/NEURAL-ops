@@ -22,12 +22,17 @@ resource "aws_iam_role_policy_attachment" "execution_managed" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# Scope secret reads to exactly the runtime secrets (not account-wide).
+# Scope secret reads to exactly the runtime secrets (not account-wide) + decrypt them with the CMK.
 data "aws_iam_policy_document" "secrets_read" {
   statement {
     sid       = "ReadRuntimeSecrets"
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [for s in aws_secretsmanager_secret.runtime : s.arn]
+  }
+  statement {
+    sid       = "DecryptSecretsCMK"
+    actions   = ["kms:Decrypt"]
+    resources = [aws_kms_key.main.arn]
   }
 }
 
@@ -40,4 +45,20 @@ resource "aws_iam_role_policy" "execution_secrets" {
 resource "aws_iam_role" "task" {
   name               = "${local.name}-task-role"
   assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
+}
+
+# Embeddings via Bedrock Titan (gated — off if self-hosting the embedder). Scoped to InvokeModel.
+data "aws_iam_policy_document" "bedrock_invoke" {
+  statement {
+    sid       = "BedrockInvokeEmbeddings"
+    actions   = ["bedrock:InvokeModel"]
+    resources = ["arn:aws:bedrock:${var.region}::foundation-model/amazon.titan-embed-text-v2:0"]
+  }
+}
+
+resource "aws_iam_role_policy" "task_bedrock" {
+  count  = var.enable_bedrock ? 1 : 0
+  name   = "${local.name}-bedrock-invoke"
+  role   = aws_iam_role.task.id
+  policy = data.aws_iam_policy_document.bedrock_invoke.json
 }

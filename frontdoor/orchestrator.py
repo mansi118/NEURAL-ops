@@ -75,8 +75,12 @@ def stream_tokens(result):
 
 
 def handle(raw, classifier, *, mode="unit", rate=None, now_s=0.0,
-           builtin_root="agents", tenant_root=None, operator_root=None):
-    """Full round-trip: gateway-validate -> route -> resolve -> dispatch -> stream."""
+           builtin_root="agents", tenant_root=None, operator_root=None, approval=None):
+    """Full round-trip: gateway-validate -> route -> resolve -> dispatch -> stream.
+
+    Governance flip-as-CONFIG: `approval` (an acp.approval_gate.ApprovalBroker, built by build_approval
+    from a tenant policy) is threaded into dispatch. None => no gate => byte-identical (the additive
+    AwaitingApproval contract). Turning governance on for a tenant is passing a built broker — not a code edit."""
     t0 = time.time()
     gateway.authenticate(raw)
     envelope = gateway.normalize(raw)
@@ -97,7 +101,7 @@ def handle(raw, classifier, *, mode="unit", rate=None, now_s=0.0,
     msg = {"text": envelope["text"], "tenant": tenant, "seat": run_seat, "requester": requester}
     overhead_ms = round((time.time() - t0) * 1000)  # boundary: everything BEFORE dispatch (a floor, not the SLO)
     cas, mocks, mem, twin = _unit_backing(folder)
-    result = dispatch(folder, msg, mode, cas, mocks, [], memory=mem, twin=twin)
+    result = dispatch(folder, msg, mode, cas, mocks, [], memory=mem, twin=twin, approval=approval)
     return {"type": "response", "neop": run_seat, "tenant": tenant, "seat": run_seat, "requester": requester,
             "dispatched_msg": msg, "state": result["state"],
             "stream": list(stream_tokens(result)), "result": result, "overhead_ms": overhead_ms}
