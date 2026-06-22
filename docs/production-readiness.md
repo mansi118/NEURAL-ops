@@ -1,26 +1,31 @@
 # NEOS / NeuralChat — Production-Readiness Ledger
 
-**Status as of 2026-06-21 · authoritative · ✅ done · 🔨 agent-buildable remaining · ⛔ human-gated**
+**Status as of 2026-06-22 · authoritative · ✅ done · 🔨 agent-buildable remaining · ⛔ human-gated**
 
 > Honest framing: "production-ready" is the **Day-90 acceptance gate** (live ≥5-seat tenant, fidelity
 > ≥0.65, pen-test passed, zero isolation violations in 30d). That gate is inherently live + human — the
 > agent **builds to the walls and cannot declare it**. This ledger tracks every deliverable to that gate.
+>
+> **2026-06-22 — BUILT TO THE WALL.** Every agent-buildable surface on the deploy path is merged to `main`
+> (seven PRs this stretch: #30 #34 #35 #36 #37 #38 + #6). Nothing `[A]` remains to *reach* a deploy — the
+> rest is the `[U]` path (PAT → AWS → `terraform apply` → secrets → deploy → smoke → flip → Day-90). The
+> remaining 🔨 are product surfaces (nc-web UI/channels app, P5 fleet) NOT on the first-live-run critical path.
 
-## Verification evidence (2026-06-21, against the self-hosted convex-local-backend)
-- NEURAL-ops python sweep **19/19**; Mempalace vitest **95 pass | 1 skip** at every merge; L2 `bridge_identity` **5/5**.
+## Verification evidence (2026-06-22, against the self-hosted convex-local-backend)
+- NEURAL-ops python sweep **20/20**; Mempalace vitest **95 pass | 1 skip** at every merge; L2 `bridge_identity` **5/5**.
 - **Live, against the real /mcp dispatcher (not simulated):** dogfish cross-seat ACL **4/4**; edge-auth +
-  audit **7/7**; full E2E process (forged inbound → edge-auth → broker.write/retrieve → broker
-  denied_at_layer → audit) **8/8**. `tsc` green both repos.
-- **Governance activated + LIVE-proven this session:** `paused_runs` durable pause — save(insert+update)+get
-  round-trip returns the exact snapshot; bridge denial emit — `denialsByLayer` `falkordb` count incremented
-  end-to-end via the actual `_emit_external_denial` Python path (bridge → `/external-denial` → audit).
+  audit **7/7**; full E2E (forged inbound → edge-auth → broker.write/retrieve → denied_at_layer → audit) **8/8**.
+  `tsc` green both repos; the parameterized **deployed-stack smoke 7/7** (ready to point at AWS).
+- **Governance activated + LIVE-proven:** `paused_runs` durable pause round-trips the exact snapshot; the
+  **Decision Queue** loop (`pendingPausedRuns` save→count 1→resolve→count 0); and **all 4 ACL layers now emit**
+  to the unified audit from production code — `denialsByLayer` = convex_sot 6 / falkordb 2 / **broker 1** /
+  **edge 2** (each driven by the real runtime/bridge/edge-auth path, not a smoke).
 - **Twin = identity, per-user — LIVE-proven:** a **permission-less** seat reads+writes its **own** twin while
   the **same seat is still denied a memory op** (`palace_search`) — the B2 carve-out is exactly twin-specific.
-- **Decision Queue + broker emit — LIVE-proven (completeness pass):** `pendingPausedRuns` save→count 1→
-  resolve→count 0 (the human-in-the-loop loop); a real runtime broker denial → `denialsByLayer.broker` 0→1.
-- ⇒ The **security / identity / audit / governance spine is built, merged, and LIVE-proven** — and the
-  approval engine now has a live, durable consumer. (Honest edge: edge-layer denial *emit* is the one named
-  remaining audit gap — classifies but can't key yet; see P2 + cross-cutting.)
+- **Edge emit timing-safe (verify-by-absence):** the edge audit emit runs off the rejection's critical path
+  (`_dispatch`), so a rejection's latency does not vary with palace resolution — no tenant-existence oracle.
+- ⇒ The **security / identity / audit / governance spine is built, merged, and LIVE-proven**, the approval
+  engine has a live durable consumer, and the **full AWS substrate is expressed in Terraform (validate-clean)**.
 
 ## Phase ledger
 
@@ -28,13 +33,19 @@
 ✅ live single-seat round-trip proven; edge-auth live seam (resolve_binding→Convex) proven; codegen+tsc green.
 ⛔ embedder decision+key; cloud `convex deploy`; rotations; Anthropic key for live classifier verdict.
 
-### P1 — Production substrate (S0)
-✅ S0.1 runtime container (PR #6 open, your docker review) · S0.2 secrets (`runtime/secrets.py`, env→keyring→refuse) ·
-   **Terraform substrate module** (`infra/terraform/`, PR #21) — VPC→ALB→ECS Fargate (runtime)→Secrets Manager→
-   IAM→CloudWatch; `fmt`/`init`/`validate` clean offline; secrets created empty (values out-of-band, S0.2); README runbook.
-🔨 containers for nc-* (need the services first); bridge/nc-* task defs as further modules; OTel instrumentation.
-⛔ **`terraform apply`** (AWS account + creds — the gate; validate ≠ working infra) · KMS CMK · remote state (S3+lock) ·
-   TLS (ACM/443) · Synapse hosts · DR backups.
+### P1 — Production substrate (S0) — FULL TERRAFORM SUBSTRATE on main, validate-clean
+✅ S0.1 runtime container (PR #6 **merged**) · S0.2 secrets (`runtime/secrets.py`, env→keyring→refuse).
+✅ **Terraform substrate — complete + validate-clean** (`infra/terraform/`): VPC/subnets/NAT · ALB (+TLS gated:
+   ACM/443/redirect, #32) · ECS Fargate **runtime** (#21) · **bridge + FalkorDB sidecar + EFS** (#31) · **ECR +
+   KMS CMK + KMS-encrypted secrets/logs** (#31) · **self-host Convex on ECS + EFS** (the SoT, #36) · **comms tier:
+   ElastiCache Redis + NATS + ClickHouse + Synapse(+RDS Postgres)** (#37) · Cloud Map internal DNS · Bedrock IAM
+   (gated). Secrets created empty (values out-of-band, S0.2). `fmt`/`init`/`validate` clean; README apply-runbook.
+✅ Deployed-stack smoke (`tools/deployed_stack_smoke.py`, #38) — target-agnostic spine verification, 7/7 vs self-host.
+🔨 OTel instrumentation; nc-* service containers (need the service code — P3).
+⛔ **`terraform apply`** (AWS account + creds — the gate; validate ≠ working infra) · remote state (S3+lock) · DR backups.
+   Named substrate forward-deps (managed, not hidden): **single-writer Convex** (SQLite-on-EFS, `desired_count=1` —
+   a Postgres-backend SWAP is a prerequisite for multi-instance, not a tuning knob) · Redis HA (replica+failover) ·
+   NATS JetStream durability (EFS) · Synapse PUBLIC client-API ingress (ALB host rule + federation) · RDS multi-AZ.
 
 ### P2 — Governance + multi-tenant (the critical-path gate) — ACTIVATED this session
 ✅ approval-policy engine (GW-4/5/6, `acp/approval.py`) · **4-layer ACL enforcing; 3/4 layers EMIT to the
