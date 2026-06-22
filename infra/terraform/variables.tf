@@ -155,3 +155,44 @@ variable "nats_image" {
   type        = string
   default     = "nats:2-alpine"
 }
+
+variable "clickhouse_image" {
+  description = "ClickHouse server image (audit-at-scale)."
+  type        = string
+  default     = "clickhouse/clickhouse-server:24-alpine"
+}
+variable "clickhouse_task_cpu" {
+  description = "Fargate CPU for ClickHouse."
+  type        = number
+  default     = 1024
+}
+variable "clickhouse_task_memory" {
+  description = "Fargate memory (MiB) for ClickHouse."
+  type        = number
+  default     = 4096
+}
+variable "synapse_image" {
+  description = "Matrix Synapse image (nc-channels homeserver)."
+  type        = string
+  default     = "matrixdotorg/synapse:latest"
+}
+variable "synapse_server_name" {
+  description = "Matrix server_name (e.g. neuraledge.in)."
+  type        = string
+  default     = "neuraledge.local"
+}
+variable "synapse_task_cpu" {
+  description = "Fargate CPU for Synapse."
+  type        = number
+  default     = 512
+}
+variable "synapse_task_memory" {
+  description = "Fargate memory (MiB) for Synapse."
+  type        = number
+  default     = 1024
+}
+variable "synapse_db_instance_class" {
+  description = "RDS instance class for the Synapse Postgres backend."
+  type        = string
+  default     = "db.t4g.micro"
+}
