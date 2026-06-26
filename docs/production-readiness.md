@@ -132,27 +132,33 @@
 | ≥3 NEops/seat in regular use | 🔨 P5 re-wrap, then ⛔ usage |
 | twin fidelity ≥0.65 | ✅ measures the **person** now (per-user twin) · 🔨 P4 fidelity clock · ⛔ usage outcome |
 | chat p95 ≤2s / NEop run p95 ≤60s | ⛔ deployed-stack measurement |
-| **zero tenant-isolation violations 30d** | ✅ mechanism live-proven (4-layer ACL enforcing + audit replay via `denialsByLayer`, 3/4 layers emit; edge-emit 🔨) — needs ⛔ 30d live window |
+| **zero tenant-isolation violations 30d** | ✅ mechanism live-proven (4-layer ACL enforcing + audit replay via `denialsByLayer`, **all 4 layers emit** incl. edge, timing-safe) — needs ⛔ 30d live window |
 | 6 meta-NEops live · dashboard · pen-test | ✅ 4 meta-NEops wrapped (+ approval/edge meta-seams) · 🔨 dashboard · ⛔ live binding + pen-test |
 
 ## Critical path to V1
-**The offline-buildable runway is essentially spent** — P2 governance is wired + live-proven, the gov-flip
-seam is complete, and all 4 meta-NEops are wrapped. From here the program moves by **activation** (flips +
-config) and **infra**, both human-gated.
-**Human (⛔), unblocks the most:** PAT rotation (30s, first) · **the governance flip** (minimal policy +
-env toggles for the dogfood tenant — its whole seam is now live-proven) · embedder key · AWS infra +
-`terraform apply` (→ P1, live P3, CMK) · Synapse hosts · policy sign-offs · pen-test/DR drill.
-**Agent (🔨), what's left:** **edge denial emit** (a name→palaceId resolver at the edge seam — the 4th audit
-layer) · P3 nc-web **UI** over the Decision-Queue API + dashboard over `denialsByLayer` · nc-channels Matrix
-adapter · P5 fleet re-wrap (Recon/ICD/CoS/TeamPulse onto the proven recipe) · P6 platform layers · OPA/Rego code.
+**The offline-buildable runway on the deploy path is spent — BUILT TO THE WALL.** P2 governance is wired +
+live-proven, the gov-flip seam is complete, **all 4 ACL layers emit** to the unified audit (edge included,
+timing-safe), the full AWS substrate is in Terraform (validate-clean), and all 4 meta-NEops are wrapped.
+Nothing `[A]` remains to *reach* a deploy. From here the program moves by **activation** (flips + config)
+and **infra**, both human-gated.
+**Human (⛔), unblocks the most:** PAT rotation (30s, first) · **the governance flip** (set the v1 policy
+`docs/decisions/approval-policy-v1.md` + env toggles for the dogfood tenant — its whole seam is now
+live-proven) · embedder key · AWS infra + `terraform apply` (→ P1, live P3, CMK) → set secrets → deploy
+Convex/stateful → run `tools/deployed_stack_smoke.py` vs AWS · Synapse hosts · policy sign-offs · pen-test/DR drill.
+**Agent (🔨), what's left — all OFF the first-live-run critical path:** P3 nc-web **UI** over the
+Decision-Queue API + dashboard over `denialsByLayer` · nc-channels Matrix adapter · P5 fleet re-wrap
+(Recon/ICD/CoS/TeamPulse onto the proven recipe) · P6 platform layers · OPA/Rego code.
 
 ## Verdict
 The **identity / audit / governance spine is production-grade, live-verified, and ACTIVATED** — the approval
 engine has a durable consumer (AwaitingApproval ↔ `paused_runs`) with the human-in-the-loop **Decision Queue
-loop live-proven**, **3/4 ACL layers emit** to the unified audit live (edge-emit named below), and all 4
-meta-NEops are wrapped. Reaching V1 needs (a) the human ⛔ gates — chiefly the **governance flip** (cheap, its
-seam is proven), the embedder, and infra — and (b) the remaining **agent product-build (edge-emit + P3 nc-web/
-channels + P5 fleet)**, a multi-session effort. **"Production-ready" is the Day-90 live gate — inherently
-human, NOT agent-declarable; this ledger does not claim it.** No part is faked; every item has an owner and an
-acceptance criterion, and what could be proven offline or on the self-host has been — including the gaps this
-completeness pass found (the Decision Queue read, the broker emit) and the one it could only name (edge emit).
+loop live-proven**, **all 4 ACL layers emit** to the unified audit live (convex_sot/falkordb/broker/edge, the
+edge emit verified timing-safe by absence), all 4 meta-NEops are wrapped, and the **full AWS substrate is in
+Terraform (validate-clean)** with a target-agnostic deployed-stack smoke ready to point at it. **The agent has
+built to the wall: nothing `[A]` remains on the path to a deploy.** Reaching V1 now needs only (a) the human ⛔
+gates — PAT rotation, the **governance flip** (cheap, its seam is proven), the embedder, and `terraform apply`
+→ secrets → deploy → smoke — and (b) the remaining **agent product-build (P3 nc-web/channels + P5 fleet)**,
+which is OFF the first-live-run critical path. **"Production-ready" is the Day-90 live gate — inherently human,
+NOT agent-declarable; this ledger does not claim it.** No part is faked; every item has an owner and an
+acceptance criterion, and everything provable offline or on the self-host has been proven — including the gaps
+this completeness pass found and closed (the Decision Queue read, the broker emit, and the edge emit).
