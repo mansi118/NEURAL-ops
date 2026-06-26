@@ -16,6 +16,16 @@ variable "region" {
   default     = "ap-south-1"
 }
 
+variable "enable_comms_tier" {
+  description = <<-EOT
+    Provision the comms/audit/event tier (ElastiCache · NATS · ClickHouse · Synapse + RDS).
+    Default true = the full substrate. Set false for the minimal dogfood SPINE (VPC + ALB +
+    Convex + runtime + bridge only) — a reproducible scope flip, not a one-off `-target`.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "vpc_cidr" {
   description = "CIDR for the VPC."
   type        = string
@@ -127,9 +137,9 @@ variable "falkordb_image" {
 }
 
 variable "bridge_container_port" {
-  description = "Port the bridge listens on."
+  description = "Port the bridge listens on (matches services/Dockerfile: uvicorn --port 8100)."
   type        = number
-  default     = 8000
+  default     = 8100
 }
 
 variable "bridge_task_cpu" {

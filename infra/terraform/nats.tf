@@ -3,6 +3,7 @@
 # when durable streams are needed (named follow-up). Lightweight; one task.
 
 resource "aws_security_group" "nats" {
+  count       = var.enable_comms_tier ? 1 : 0
   name        = "${local.name}-nats-sg"
   description = "NATS 4222 (client) from in-VPC callers only."
   vpc_id      = aws_vpc.main.id
@@ -26,13 +27,15 @@ resource "aws_security_group" "nats" {
 }
 
 resource "aws_cloudwatch_log_group" "nats" {
+  count             = var.enable_comms_tier ? 1 : 0
   name              = "/ecs/${local.name}-nats"
   retention_in_days = 30
   kms_key_id        = aws_kms_key.main.arn
 }
 
 resource "aws_service_discovery_service" "nats" {
-  name = "nats"
+  count = var.enable_comms_tier ? 1 : 0
+  name  = "nats"
 
   dns_config {
     namespace_id = aws_service_discovery_private_dns_namespace.main.id
@@ -49,6 +52,7 @@ resource "aws_service_discovery_service" "nats" {
 }
 
 resource "aws_ecs_task_definition" "nats" {
+  count                    = var.enable_comms_tier ? 1 : 0
   family                   = "${local.name}-nats"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
@@ -67,7 +71,7 @@ resource "aws_ecs_task_definition" "nats" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.nats.name
+          "awslogs-group"         = aws_cloudwatch_log_group.nats[0].name
           "awslogs-region"        = var.region
           "awslogs-stream-prefix" = "nats"
         }
@@ -77,19 +81,20 @@ resource "aws_ecs_task_definition" "nats" {
 }
 
 resource "aws_ecs_service" "nats" {
+  count           = var.enable_comms_tier ? 1 : 0
   name            = "${local.name}-nats"
   cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.nats.arn
+  task_definition = aws_ecs_task_definition.nats[0].arn
   desired_count   = 1
   launch_type     = "FARGATE"
 
   network_configuration {
     subnets          = aws_subnet.private[*].id
-    security_groups  = [aws_security_group.nats.id]
+    security_groups  = [aws_security_group.nats[0].id]
     assign_public_ip = false
   }
 
   service_registries {
-    registry_arn = aws_service_discovery_service.nats.arn
+    registry_arn = aws_service_discovery_service.nats[0].arn
   }
 }

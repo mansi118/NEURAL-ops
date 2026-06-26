@@ -1,0 +1,32 @@
+# CodeBuild buildspec — build a Docker image from the S3 source zip and push to ECR.
+# Generic: driven by env vars so one project builds both runtime and bridge.
+#   ECR_REPO     full ECR repo URI (…amazonaws.com/neos-dogfood-runtime)
+#   IMAGE_TAG    tag to push (git sha)
+#   DOCKERFILE   path to the Dockerfile within the source (default ./Dockerfile)
+#   BUILD_CONTEXT directory to build from (default .)
+# Requires privilegedMode=true (Docker daemon). Pushes :$IMAGE_TAG and :latest.
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo "Logging in to ECR $ECR_REPO"
+      - AWS_REGION_EFF=${AWS_DEFAULT_REGION:-$AWS_REGION}
+      - REGISTRY=$(echo "$ECR_REPO" | cut -d/ -f1)
+      - aws ecr get-login-password --region "$AWS_REGION_EFF" | docker login --username AWS --password-stdin "$REGISTRY"
+      - DOCKERFILE=${DOCKERFILE:-./Dockerfile}
+      - BUILD_CONTEXT=${BUILD_CONTEXT:-.}
+  build:
+    commands:
+      - echo "docker build -f $DOCKERFILE $BUILD_CONTEXT"
+      - docker build -f "$DOCKERFILE" -t "$ECR_REPO:$IMAGE_TAG" -t "$ECR_REPO:latest" "$BUILD_CONTEXT"
+  post_build:
+    commands:
+      - docker push "$ECR_REPO:$IMAGE_TAG"
+      - docker push "$ECR_REPO:latest"
+      - 'DIGEST=$(aws ecr describe-images --region "$AWS_REGION_EFF" --repository-name "$(echo "$ECR_REPO" | cut -d/ -f2-)" --image-ids imageTag="$IMAGE_TAG" --query "imageDetails[0].imageDigest" --output text)'
+      - echo "PUSHED $ECR_REPO@$DIGEST"
+      - printf '%s@%s\n' "$ECR_REPO" "$DIGEST" > image-digest.txt
+artifacts:
+  files:
+    - image-digest.txt
