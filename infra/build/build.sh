@@ -86,12 +86,23 @@ build_one() {
   local repo="${REGISTRY}/${repo_suffix}"
   local key="src/${label}-${GITSHA}.zip" zip="/tmp/${label}-src.zip"
   log "zipping context $ctx → $zip"
-  ( cd "$ctx" && rm -f "$zip" && zip -qr "$zip" . -x '*.git*' 'node_modules/*' '*.terraform/*' )
+  # SECURITY: never ship secrets/state to S3. Exclude .env*, tfvars, tfstate, .terraform, vcs, deps.
+  ( cd "$ctx" && rm -f "$zip" && zip -qr "$zip" . \
+      -x '*.git*' 'node_modules/*' '*.terraform/*' '*.terraform' \
+         '.env' '.env.*' '*.env' \
+         '*.tfvars' '*.tfstate' '*.tfstate.*' '*.tfplan' 'tf.plan' )
+  # Precise: real secret-bearing files only (.env*, terraform.tfvars, *.tfstate) — not files merely
+  # NAMED "secret"/"*.tfvars.example". Anchored on $ = filename end in `unzip -l` output.
+  if unzip -l "$zip" | grep -iE '(^|/)\.env(\.[^/]*)?$|(^|/)[^/]*\.tfvars$|\.tfstate([0-9.]*)?$' ; then
+    log "ABORT: real secret/state file present in zip"; return 1
+  fi
+  log "  zip clean (no .env / tfvars / tfstate)"
   aws s3 cp "$zip" "s3://${BUCKET}/${key}" >/dev/null
   log "starting CodeBuild for $label ($repo:$GITSHA)"
   local bid
   bid=$(aws codebuild start-build --project-name "$PROJECT_NAME" \
         --source-location-override "${BUCKET}/${key}" --source-type-override S3 \
+        --buildspec-override "$(cat "$HERE/buildspec-image.yml")" \
         --environment-variables-override \
           name=ECR_REPO,value="$repo",type=PLAINTEXT \
           name=IMAGE_TAG,value="$GITSHA",type=PLAINTEXT \
