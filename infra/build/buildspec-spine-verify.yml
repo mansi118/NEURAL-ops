@@ -1,0 +1,25 @@
+# VPC-attached CodeBuild — deploy Convex functions to the INTERNAL backend, seed the tenant, and run
+# the deployed-stack smoke, all in-VPC (Convex has no public IP). Offline: node_modules is bundled in the
+# source and runtime.memory is stdlib-only, so NO npm/pip install (the VPC has no internet by design).
+# Source bundle layout:  ./neural-ops/  (this repo)   ./mempalace/ (Mempalace_NEOS + node_modules)
+# Env: CONVEX_API_URL, CONVEX_SITE_URL, CONVEX_ADMIN_KEY(secrets-manager), SMOKE_CLIENT
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20      # convex CLI uses the RegExp 'v' flag → needs Node 20+ (image defaults to 18)
+      python: 3.12
+  build:
+    commands:
+      - 'echo "=== convex deploy (internal backend) ==="'
+      - 'cd "$CODEBUILD_SRC_DIR/mempalace"'
+      - 'export CONVEX_SELF_HOSTED_URL="$CONVEX_API_URL"; export CONVEX_SELF_HOSTED_ADMIN_KEY="$CONVEX_ADMIN_KEY"'
+      - 'node_modules/.bin/convex deploy -y'
+      - 'echo "=== seed palace structure + access matrix (faithful seed scripts; idempotent) ==="'
+      - 'export CONVEX_URL="$CONVEX_API_URL"'
+      - 'npm run seed:palace -- --client-id=$SMOKE_CLIENT --name="NeuralEdge"'
+      - 'npm run seed:access -- --client-id=$SMOKE_CLIENT'
+      - 'echo "=== deployed-stack smoke ==="'
+      - 'cd "$CODEBUILD_SRC_DIR/neural-ops"'
+      - 'export NEOS_SMOKE_API_URL="$CONVEX_API_URL"; export NEOS_SMOKE_SITE_URL="$CONVEX_SITE_URL"; export NEOS_SMOKE_ADMIN_KEY="$CONVEX_ADMIN_KEY"; export NEOS_SMOKE_CLIENT="$SMOKE_CLIENT"; export MEMPALACE_DIR="$CODEBUILD_SRC_DIR/mempalace"'
+      - 'python3 tools/deployed_stack_smoke.py'

@@ -29,6 +29,23 @@ resource "aws_ecr_repository" "bridge" {
   }
 }
 
+# Convex SoT image — a MIRROR of the public ghcr.io/get-convex/convex-backend, so the private
+# subnets can pull it via the ECR VPC endpoint with NO public egress (enable_nat_gateway=false).
+# MUTABLE: it tracks an upstream tag that can be re-mirrored; pin the digest in tfvars after a mirror.
+resource "aws_ecr_repository" "convex" {
+  name                 = "${local.name}-convex"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "KMS"
+    kms_key         = aws_kms_key.main.arn
+  }
+}
+
 # Expire untagged images after 14 days to keep the registry bounded (same lifecycle on both).
 locals {
   ecr_lifecycle = jsonencode({

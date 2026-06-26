@@ -121,11 +121,43 @@ build_one() {
   done
 }
 
+# mirror a public image into ECR (for the no-NAT design — pull via the ECR VPC endpoint).
+# mirror_image <ecr-repo-suffix> <source-public-image> <tag>
+mirror_image() {
+  local repo_suffix="$1" src="$2" tag="$3"
+  local repo="${REGISTRY}/${repo_suffix}"
+  log "ensuring ECR repo ${repo_suffix} (terraform -target)"
+  ( cd "$TF_DIR" && terraform apply -input=false -auto-approve -target=aws_ecr_repository.convex >/dev/null )
+  # a tiny dummy source (the mirror needs no real source, but the S3 project expects one)
+  local dz="/tmp/mirror-src.zip"; ( cd /tmp && echo mirror > _m.txt && rm -f "$dz" && zip -q "$dz" _m.txt )
+  aws s3 cp "$dz" "s3://${BUCKET}/src/mirror.zip" >/dev/null
+  log "mirroring $src -> $repo:$tag (CodeBuild)"
+  local bid
+  bid=$(aws codebuild start-build --project-name "$PROJECT_NAME" \
+        --source-location-override "${BUCKET}/src/mirror.zip" --source-type-override S3 \
+        --buildspec-override "$(cat "$HERE/buildspec-mirror.yml")" \
+        --environment-variables-override \
+          name=SRC_IMAGE,value="$src",type=PLAINTEXT \
+          name=ECR_REPO,value="$repo",type=PLAINTEXT \
+          name=IMAGE_TAG,value="$tag",type=PLAINTEXT \
+        --query 'build.id' --output text)
+  log "build id $bid — polling…"
+  while :; do
+    local st; st=$(aws codebuild batch-get-builds --ids "$bid" --query 'builds[0].buildStatus' --output text)
+    case "$st" in
+      SUCCEEDED) log "mirror SUCCEEDED → ${repo}:${tag}"; break ;;
+      IN_PROGRESS) sleep 12 ;;
+      *) log "mirror $st — see CodeBuild logs for $bid"; return 1 ;;
+    esac
+  done
+}
+
 cmd="${1:-}"; [ -n "$cmd" ] || { grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 for arg in "$@"; do
   case "$arg" in
-    bootstrap) bootstrap ;;
-    runtime)   build_one runtime "${NAME}-runtime" "$REPO_ROOT" "./Dockerfile" ;;
-    bridge)    build_one bridge  "${NAME}-bridge"  "$MEMPALACE_DIR/services" "./Dockerfile" ;;
+    bootstrap)     bootstrap ;;
+    runtime)       build_one runtime "${NAME}-runtime" "$REPO_ROOT" "./Dockerfile" ;;
+    bridge)        build_one bridge  "${NAME}-bridge"  "$MEMPALACE_DIR/services" "./Dockerfile" ;;
+    mirror-convex) mirror_image "${NAME}-convex" "ghcr.io/get-convex/convex-backend:latest" "stable" ;;
   esac
 done

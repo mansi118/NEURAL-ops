@@ -1,0 +1,19 @@
+version: 0.2
+phases:
+  pre_build:
+    commands:
+      - 'AWS_REGION_EFF=${AWS_DEFAULT_REGION:-$AWS_REGION}'
+      - 'REGISTRY=$(echo "$CONVEX_ECR_IMAGE" | cut -d/ -f1)'
+      - 'aws ecr get-login-password --region "$AWS_REGION_EFF" | docker login --username AWS --password-stdin "$REGISTRY"'
+      - 'docker pull "$CONVEX_ECR_IMAGE"'
+      - 'INSTANCE_SECRET=$(aws secretsmanager get-secret-value --secret-id "$INSTANCE_SECRET_ID" --query SecretString --output text)'
+  build:
+    commands:
+      - 'echo "=== workdir + find generate_admin ==="'
+      - 'docker run --rm --entrypoint sh "$CONVEX_ECR_IMAGE" -c "pwd; ls; find / -iname *generate_admin* 2>/dev/null; ./convex-local-backend --help 2>&1 | head -30" || true'
+      - 'KEY=$(docker run --rm -e INSTANCE_NAME="$INSTANCE_NAME" -e INSTANCE_SECRET="$INSTANCE_SECRET" --entrypoint sh "$CONVEX_ECR_IMAGE" -c "./generate_admin_key.sh 2>/dev/null | tail -1" || true)'
+      - 'echo "attempt1 length ${#KEY}"'
+      - 'if [ -z "$KEY" ]; then KEY=$(docker run --rm --entrypoint ./generate_admin_key.sh "$CONVEX_ECR_IMAGE" "$INSTANCE_NAME" "$INSTANCE_SECRET" 2>/dev/null | tail -1 || true); echo "attempt2 length ${#KEY}"; fi'
+  post_build:
+    commands:
+      - 'if [ -n "$KEY" ]; then aws secretsmanager put-secret-value --secret-id "$ADMIN_SECRET_ID" --secret-string "$KEY" >/dev/null && echo "ADMINKEYSTORED length ${#KEY}"; else echo "ADMINKEYFAILED"; exit 1; fi'

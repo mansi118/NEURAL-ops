@@ -143,13 +143,21 @@ resource "aws_ecs_task_definition" "convex" {
 
       environment = [
         { name = "INSTANCE_NAME", value = var.convex_instance_name },
+        # The backend's externally-reachable origins (in-VPC Cloud Map) — used in storage URLs +
+        # action callbacks. Plain HTTP in-VPC ⇒ DO_NOT_REQUIRE_SSL; no NAT ⇒ DISABLE_BEACON.
+        { name = "CONVEX_CLOUD_ORIGIN", value = "http://convex.${aws_service_discovery_private_dns_namespace.main.name}:3210" },
+        { name = "CONVEX_SITE_ORIGIN", value = "http://convex.${aws_service_discovery_private_dns_namespace.main.name}:3211" },
+        { name = "DO_NOT_REQUIRE_SSL", value = "true" },
+        { name = "DISABLE_BEACON", value = "true" },
       ]
 
       secrets = [
         { name = "INSTANCE_SECRET", valueFrom = aws_secretsmanager_secret.runtime["CONVEX_INSTANCE_SECRET"].arn },
       ]
 
-      mountPoints = [{ sourceVolume = "convex-data", containerPath = "/convex", readOnly = false }]
+      # Mount EFS at the DATA dir (/convex/data, per run_backend.sh), NOT /convex — mounting over
+      # /convex would shadow the image's scripts (run_backend.sh / generate_admin_key.sh).
+      mountPoints = [{ sourceVolume = "convex-data", containerPath = "/convex/data", readOnly = false }]
 
       logConfiguration = {
         logDriver = "awslogs"

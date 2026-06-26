@@ -16,6 +16,17 @@ variable "region" {
   default     = "ap-south-1"
 }
 
+variable "enable_nat_gateway" {
+  description = <<-EOT
+    Egress for the private subnets via a NAT gateway (needs 1 Elastic IP). Default true.
+    Set false to use VPC endpoints (ECR/S3/Logs/Secrets Manager) instead — no EIP required
+    (use when the account is at its EIP quota) and cheaper, but no public-internet egress
+    in-private (fine for the spine: Convex image is mirrored to ECR; model/embedder deferred).
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "enable_comms_tier" {
   description = <<-EOT
     Provision the comms/audit/event tier (ElastiCache · NATS · ClickHouse · Synapse + RDS).
