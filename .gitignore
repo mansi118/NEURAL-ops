@@ -10,3 +10,7 @@ __pycache__/
 # secrets — never commit
 .env
 .env.*
+
+# terraform plan artifacts
+infra/terraform/tf.plan
+*.tfplan

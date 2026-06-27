@@ -10,6 +10,13 @@
 > (seven PRs this stretch: #30 #34 #35 #36 #37 #38 + #6). Nothing `[A]` remains to *reach* a deploy — the
 > rest is the `[U]` path (PAT → AWS → `terraform apply` → secrets → deploy → smoke → flip → Day-90). The
 > remaining 🔨 are product surfaces (nc-web UI/channels app, P5 fleet) NOT on the first-live-run critical path.
+>
+> **2026-06-28 — SPINE LIVE ON AWS (dogfood, ap-south-1).** `terraform apply` crossed: the minimal spine
+> (VPC + Convex SoT + runtime + bridge+FalkorDB) is deployed and the **deployed-stack smoke passes 7/7 against
+> the real AWS backend** (account 071126865245). All three ECS services stable. This is a **live spine, not
+> production-ready** — the Day-90 gate stands. Deferred by design: comms/audit tier (`enable_comms_tier=false`),
+> embedder + model key, TLS (HTTP-only in-VPC), governance flip. Runbook: `docs/deployment/dogfood-spine-runbook.md`.
+> Account constraint met honestly: EIP quota was full, so the spine uses **VPC endpoints, no NAT** (`enable_nat_gateway=false`).
 
 ## Verification evidence (2026-06-22, against the self-hosted convex-local-backend)
 - NEURAL-ops python sweep **20/20**; Mempalace vitest **95 pass | 1 skip** at every merge; L2 `bridge_identity` **5/5**.
@@ -29,9 +36,11 @@
 
 ## Phase ledger
 
-### P0 — Cross the live wall ✅ (via self-host; cloud deploy ⛔ optional)
+### P0 — Cross the live wall ✅ (self-host AND AWS)
 ✅ live single-seat round-trip proven; edge-auth live seam (resolve_binding→Convex) proven; codegen+tsc green.
-⛔ embedder decision+key; cloud `convex deploy`; rotations; Anthropic key for live classifier verdict.
+✅ **AWS deploy crossed (2026-06-28):** Convex functions deployed to the self-hosted backend on Fargate
+   (in-VPC via CodeBuild), tenant seeded, **deployed-stack smoke 7/7 against the live AWS backend**.
+⛔ embedder decision+key; rotations; Anthropic/model key for live classifier verdict (deferred — spine smoke needs none).
 
 ### P1 — Production substrate (S0) — FULL TERRAFORM SUBSTRATE on main, validate-clean
 ✅ S0.1 runtime container (PR #6 **merged**) · S0.2 secrets (`runtime/secrets.py`, env→keyring→refuse).
@@ -40,9 +49,15 @@
    KMS CMK + KMS-encrypted secrets/logs** (#31) · **self-host Convex on ECS + EFS** (the SoT, #36) · **comms tier:
    ElastiCache Redis + NATS + ClickHouse + Synapse(+RDS Postgres)** (#37) · Cloud Map internal DNS · Bedrock IAM
    (gated). Secrets created empty (values out-of-band, S0.2). `fmt`/`init`/`validate` clean; README apply-runbook.
-✅ Deployed-stack smoke (`tools/deployed_stack_smoke.py`, #38) — target-agnostic spine verification, 7/7 vs self-host.
+✅ Deployed-stack smoke (`tools/deployed_stack_smoke.py`, #38) — 7/7 vs self-host AND **7/7 vs live AWS (2026-06-28)**.
+✅ **SPINE APPLIED + LIVE on AWS (ap-south-1, 2026-06-28):** `terraform apply` of the dogfood spine — VPC +
+   ALB + Convex SoT + runtime (idle worker; `enable_runtime_alb=false`) + bridge+FalkorDB. Images built with
+   **no local Docker via CodeBuild** (runtime/bridge from source; Convex/FalkorDB mirrored ghcr/DockerHub→ECR).
+   **No NAT** — VPC endpoints (ECR/S3/Logs/SecretsManager), `enable_nat_gateway=false` (account EIP quota was full).
+   Spine-only via `enable_comms_tier=false` (91→59→56 applied resources). Secrets out-of-band (admin key generated
+   from the instance secret in CodeBuild). Tooling: `infra/build/{build,spine-verify,convex-deploy}.sh`.
 🔨 OTel instrumentation; nc-* service containers (need the service code — P3).
-⛔ **`terraform apply`** (AWS account + creds — the gate; validate ≠ working infra) · remote state (S3+lock) · DR backups.
+⛔ **comms tier apply** (`enable_comms_tier=true`) · remote state (S3+lock) · DR backups · TLS (domain+ACM).
    Named substrate forward-deps (managed, not hidden): **single-writer Convex** (SQLite-on-EFS, `desired_count=1` —
    a Postgres-backend SWAP is a prerequisite for multi-instance, not a tuning knob) · Redis HA (replica+failover) ·
    NATS JetStream durability (EFS) · Synapse PUBLIC client-API ingress (ALB host rule + federation) · RDS multi-AZ.

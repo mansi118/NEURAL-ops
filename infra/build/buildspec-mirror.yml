@@ -1,0 +1,18 @@
+# CodeBuild buildspec — mirror a PUBLIC image into ECR (so private subnets can pull it via the ECR
+# VPC endpoint with no public egress). Driven by env: SRC_IMAGE, ECR_REPO, IMAGE_TAG. No source needed.
+version: 0.2
+phases:
+  pre_build:
+    commands:
+      - AWS_REGION_EFF=${AWS_DEFAULT_REGION:-$AWS_REGION}
+      - REGISTRY=$(echo "$ECR_REPO" | cut -d/ -f1)
+      - aws ecr get-login-password --region "$AWS_REGION_EFF" | docker login --username AWS --password-stdin "$REGISTRY"
+  build:
+    commands:
+      - docker pull "$SRC_IMAGE"
+      - docker tag "$SRC_IMAGE" "$ECR_REPO:$IMAGE_TAG"
+      - docker push "$ECR_REPO:$IMAGE_TAG"
+  post_build:
+    commands:
+      - 'DIGEST=$(aws ecr describe-images --region "$AWS_REGION_EFF" --repository-name "$(echo "$ECR_REPO" | cut -d/ -f2-)" --image-ids imageTag="$IMAGE_TAG" --query "imageDetails[0].imageDigest" --output text)'
+      - echo "MIRRORED $SRC_IMAGE -> $ECR_REPO@$DIGEST"

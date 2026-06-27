@@ -4,7 +4,7 @@
 
 resource "aws_security_group" "bridge" {
   name        = "${local.name}-bridge-sg"
-  description = "Bridge port from inside the VPC only (Convex → bridge); egress for Anthropic/Convex."
+  description = "Bridge port from inside the VPC only (Convex to bridge); egress for Anthropic/Convex."
   vpc_id      = aws_vpc.main.id
 
   ingress {

@@ -1,0 +1,19 @@
+# Dogfood SPINE scope — copy to terraform.tfvars (gitignored) and fill the image URIs after Phase 3.
+# Minimal spine = VPC + ALB + Convex (SoT) + runtime + bridge(+FalkorDB). Comms/audit tier deferred.
+# See docs/deployment/dogfood-spine-runbook.md.
+
+environment       = "dogfood"
+region            = "ap-south-1"
+enable_comms_tier = false # the spine flip — drops ElastiCache/NATS/ClickHouse/Synapse/RDS (91 → 59 resources)
+enable_bedrock    = false # embedder deferred (Gemini key on hand; wire at activation)
+
+# Convex SoT — the public self-hosted backend image (matches the INSTANCE_NAME/INSTANCE_SECRET contract).
+convex_image = "ghcr.io/get-convex/convex-backend:latest"
+
+# Custom images — fill with the ECR digests CodeBuild pushes in Phase 3 (e.g. ...amazonaws.com/neos-dogfood-runtime@sha256:...).
+# runtime_image = "071126865245.dkr.ecr.ap-south-1.amazonaws.com/neos-dogfood-runtime:<gitsha>"
+# bridge_image  = "071126865245.dkr.ecr.ap-south-1.amazonaws.com/neos-dogfood-bridge:<gitsha>"
+
+# TLS deferred (HTTP-only dogfood). Set both to enable ACM/443/redirect.
+# domain_name     = ""
+# route53_zone_id = ""

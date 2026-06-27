@@ -3,6 +3,7 @@
 # the audit writers/readers. EFS-persisted; single node for dogfood (add a shard/replica for scale).
 
 resource "aws_efs_file_system" "clickhouse" {
+  count          = var.enable_comms_tier ? 1 : 0
   creation_token = "${local.name}-clickhouse"
   encrypted      = true
   kms_key_id     = aws_kms_key.main.arn
@@ -10,6 +11,7 @@ resource "aws_efs_file_system" "clickhouse" {
 }
 
 resource "aws_security_group" "clickhouse" {
+  count       = var.enable_comms_tier ? 1 : 0
   name        = "${local.name}-clickhouse-sg"
   description = "ClickHouse 8123 (HTTP) + 9000 (native) from in-VPC callers only."
   vpc_id      = aws_vpc.main.id
@@ -41,6 +43,7 @@ resource "aws_security_group" "clickhouse" {
 }
 
 resource "aws_security_group" "clickhouse_efs" {
+  count       = var.enable_comms_tier ? 1 : 0
   name        = "${local.name}-clickhouse-efs-sg"
   description = "EFS NFS (2049) from the ClickHouse task only."
   vpc_id      = aws_vpc.main.id
@@ -50,7 +53,7 @@ resource "aws_security_group" "clickhouse_efs" {
     from_port       = 2049
     to_port         = 2049
     protocol        = "tcp"
-    security_groups = [aws_security_group.clickhouse.id]
+    security_groups = [aws_security_group.clickhouse[0].id]
   }
 
   egress {
@@ -64,14 +67,15 @@ resource "aws_security_group" "clickhouse_efs" {
 }
 
 resource "aws_efs_mount_target" "clickhouse" {
-  count           = var.az_count
-  file_system_id  = aws_efs_file_system.clickhouse.id
+  count           = var.enable_comms_tier ? var.az_count : 0
+  file_system_id  = aws_efs_file_system.clickhouse[0].id
   subnet_id       = aws_subnet.private[count.index].id
-  security_groups = [aws_security_group.clickhouse_efs.id]
+  security_groups = [aws_security_group.clickhouse_efs[0].id]
 }
 
 resource "aws_efs_access_point" "clickhouse" {
-  file_system_id = aws_efs_file_system.clickhouse.id
+  count          = var.enable_comms_tier ? 1 : 0
+  file_system_id = aws_efs_file_system.clickhouse[0].id
 
   posix_user {
     uid = 101
@@ -91,7 +95,8 @@ resource "aws_efs_access_point" "clickhouse" {
 }
 
 resource "aws_service_discovery_service" "clickhouse" {
-  name = "clickhouse"
+  count = var.enable_comms_tier ? 1 : 0
+  name  = "clickhouse"
 
   dns_config {
     namespace_id = aws_service_discovery_private_dns_namespace.main.id
@@ -108,12 +113,14 @@ resource "aws_service_discovery_service" "clickhouse" {
 }
 
 resource "aws_cloudwatch_log_group" "clickhouse" {
+  count             = var.enable_comms_tier ? 1 : 0
   name              = "/ecs/${local.name}-clickhouse"
   retention_in_days = 30
   kms_key_id        = aws_kms_key.main.arn
 }
 
 resource "aws_ecs_task_definition" "clickhouse" {
+  count                    = var.enable_comms_tier ? 1 : 0
   family                   = "${local.name}-clickhouse"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
@@ -125,10 +132,10 @@ resource "aws_ecs_task_definition" "clickhouse" {
   volume {
     name = "clickhouse-data"
     efs_volume_configuration {
-      file_system_id     = aws_efs_file_system.clickhouse.id
+      file_system_id     = aws_efs_file_system.clickhouse[0].id
       transit_encryption = "ENABLED"
       authorization_config {
-        access_point_id = aws_efs_access_point.clickhouse.id
+        access_point_id = aws_efs_access_point.clickhouse[0].id
         iam             = "DISABLED"
       }
     }
@@ -152,7 +159,7 @@ resource "aws_ecs_task_definition" "clickhouse" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.clickhouse.name
+          "awslogs-group"         = aws_cloudwatch_log_group.clickhouse[0].name
           "awslogs-region"        = var.region
           "awslogs-stream-prefix" = "clickhouse"
         }
@@ -162,19 +169,20 @@ resource "aws_ecs_task_definition" "clickhouse" {
 }
 
 resource "aws_ecs_service" "clickhouse" {
+  count           = var.enable_comms_tier ? 1 : 0
   name            = "${local.name}-clickhouse"
   cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.clickhouse.arn
+  task_definition = aws_ecs_task_definition.clickhouse[0].arn
   desired_count   = 1
   launch_type     = "FARGATE"
 
   network_configuration {
     subnets          = aws_subnet.private[*].id
-    security_groups  = [aws_security_group.clickhouse.id]
+    security_groups  = [aws_security_group.clickhouse[0].id]
     assign_public_ip = false
   }
 
   service_registries {
-    registry_arn = aws_service_discovery_service.clickhouse.arn
+    registry_arn = aws_service_discovery_service.clickhouse[0].arn
   }
 }

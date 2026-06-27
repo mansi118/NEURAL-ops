@@ -16,6 +16,38 @@ variable "region" {
   default     = "ap-south-1"
 }
 
+variable "enable_nat_gateway" {
+  description = <<-EOT
+    Egress for the private subnets via a NAT gateway (needs 1 Elastic IP). Default true.
+    Set false to use VPC endpoints (ECR/S3/Logs/Secrets Manager) instead — no EIP required
+    (use when the account is at its EIP quota) and cheaper, but no public-internet egress
+    in-private (fine for the spine: Convex image is mirrored to ECR; model/embedder deferred).
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "enable_runtime_alb" {
+  description = <<-EOT
+    Register the runtime service behind the ALB target group (HTTP health-checked). Default true.
+    The runtime is an idle worker until transport arrives (S0.3 nc-channels) — it serves no HTTP yet,
+    so for the dogfood spine set false: the runtime runs as a worker (no health-check kill); the ALB
+    stays provisioned for when transport lands.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "enable_comms_tier" {
+  description = <<-EOT
+    Provision the comms/audit/event tier (ElastiCache · NATS · ClickHouse · Synapse + RDS).
+    Default true = the full substrate. Set false for the minimal dogfood SPINE (VPC + ALB +
+    Convex + runtime + bridge only) — a reproducible scope flip, not a one-off `-target`.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "vpc_cidr" {
   description = "CIDR for the VPC."
   type        = string
@@ -127,9 +159,9 @@ variable "falkordb_image" {
 }
 
 variable "bridge_container_port" {
-  description = "Port the bridge listens on."
+  description = "Port the bridge listens on (matches services/Dockerfile: uvicorn --port 8100)."
   type        = number
-  default     = 8000
+  default     = 8100
 }
 
 variable "bridge_task_cpu" {
