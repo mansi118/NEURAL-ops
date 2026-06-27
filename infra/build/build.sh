@@ -124,10 +124,10 @@ build_one() {
 # mirror a public image into ECR (for the no-NAT design — pull via the ECR VPC endpoint).
 # mirror_image <ecr-repo-suffix> <source-public-image> <tag>
 mirror_image() {
-  local repo_suffix="$1" src="$2" tag="$3"
+  local repo_suffix="$1" src="$2" tag="$3" tf_target="${4:-aws_ecr_repository.convex}"
   local repo="${REGISTRY}/${repo_suffix}"
-  log "ensuring ECR repo ${repo_suffix} (terraform -target)"
-  ( cd "$TF_DIR" && terraform apply -input=false -auto-approve -target=aws_ecr_repository.convex >/dev/null )
+  log "ensuring ECR repo ${repo_suffix} (terraform -target=${tf_target})"
+  ( cd "$TF_DIR" && terraform apply -input=false -auto-approve -target="${tf_target}" >/dev/null )
   # a tiny dummy source (the mirror needs no real source, but the S3 project expects one)
   local dz="/tmp/mirror-src.zip"; ( cd /tmp && echo mirror > _m.txt && rm -f "$dz" && zip -q "$dz" _m.txt )
   aws s3 cp "$dz" "s3://${BUCKET}/src/mirror.zip" >/dev/null
@@ -158,6 +158,7 @@ for arg in "$@"; do
     bootstrap)     bootstrap ;;
     runtime)       build_one runtime "${NAME}-runtime" "$REPO_ROOT" "./Dockerfile" ;;
     bridge)        build_one bridge  "${NAME}-bridge"  "$MEMPALACE_DIR/services" "./Dockerfile" ;;
-    mirror-convex) mirror_image "${NAME}-convex" "ghcr.io/get-convex/convex-backend:latest" "stable" ;;
+    mirror-convex)   mirror_image "${NAME}-convex"   "ghcr.io/get-convex/convex-backend:latest" "stable" "aws_ecr_repository.convex" ;;
+    mirror-falkordb) mirror_image "${NAME}-falkordb" "falkordb/falkordb:latest"                "stable" "aws_ecr_repository.falkordb" ;;
   esac
 done

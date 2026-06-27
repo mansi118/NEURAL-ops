@@ -70,10 +70,15 @@ resource "aws_ecs_service" "runtime" {
     assign_public_ip = false
   }
 
-  load_balancer {
-    target_group_arn = aws_lb_target_group.runtime.arn
-    container_name   = "runtime"
-    container_port   = var.container_port
+  # The runtime serves no HTTP until transport (S0.3); gate the ALB registration so an idle worker
+  # isn't killed by health checks. enable_runtime_alb=false ⇒ runs as a worker; ALB stays for later.
+  dynamic "load_balancer" {
+    for_each = var.enable_runtime_alb ? [1] : []
+    content {
+      target_group_arn = aws_lb_target_group.runtime.arn
+      container_name   = "runtime"
+      container_port   = var.container_port
+    }
   }
 
   depends_on = [aws_lb_listener.http]

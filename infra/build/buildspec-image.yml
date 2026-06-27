@@ -19,11 +19,11 @@ phases:
   build:
     commands:
       - echo "docker build -f $DOCKERFILE $BUILD_CONTEXT"
-      - docker build -f "$DOCKERFILE" -t "$ECR_REPO:$IMAGE_TAG" -t "$ECR_REPO:latest" "$BUILD_CONTEXT"
+      - docker build -f "$DOCKERFILE" -t "$ECR_REPO:$IMAGE_TAG" "$BUILD_CONTEXT"
   post_build:
     commands:
+      # gitsha tag only — repos are IMMUTABLE, so a fixed :latest can't be re-pushed; the digest is pinned in tfvars.
       - docker push "$ECR_REPO:$IMAGE_TAG"
-      - docker push "$ECR_REPO:latest"
       - 'DIGEST=$(aws ecr describe-images --region "$AWS_REGION_EFF" --repository-name "$(echo "$ECR_REPO" | cut -d/ -f2-)" --image-ids imageTag="$IMAGE_TAG" --query "imageDetails[0].imageDigest" --output text)'
       - echo "PUSHED $ECR_REPO@$DIGEST"
       - printf '%s@%s\n' "$ECR_REPO" "$DIGEST" > image-digest.txt

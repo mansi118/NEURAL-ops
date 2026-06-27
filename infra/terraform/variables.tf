@@ -27,6 +27,17 @@ variable "enable_nat_gateway" {
   default     = true
 }
 
+variable "enable_runtime_alb" {
+  description = <<-EOT
+    Register the runtime service behind the ALB target group (HTTP health-checked). Default true.
+    The runtime is an idle worker until transport arrives (S0.3 nc-channels) — it serves no HTTP yet,
+    so for the dogfood spine set false: the runtime runs as a worker (no health-check kill); the ALB
+    stays provisioned for when transport lands.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "enable_comms_tier" {
   description = <<-EOT
     Provision the comms/audit/event tier (ElastiCache · NATS · ClickHouse · Synapse + RDS).

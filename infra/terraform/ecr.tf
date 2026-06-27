@@ -46,6 +46,22 @@ resource "aws_ecr_repository" "convex" {
   }
 }
 
+# FalkorDB sidecar image — mirrored from Docker Hub (falkordb/falkordb) so the no-NAT bridge task
+# pulls it via the ECR VPC endpoint. MUTABLE (tracks an upstream tag).
+resource "aws_ecr_repository" "falkordb" {
+  name                 = "${local.name}-falkordb"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "KMS"
+    kms_key         = aws_kms_key.main.arn
+  }
+}
+
 # Expire untagged images after 14 days to keep the registry bounded (same lifecycle on both).
 locals {
   ecr_lifecycle = jsonencode({
