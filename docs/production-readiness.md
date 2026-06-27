@@ -40,7 +40,16 @@
 ✅ live single-seat round-trip proven; edge-auth live seam (resolve_binding→Convex) proven; codegen+tsc green.
 ✅ **AWS deploy crossed (2026-06-28):** Convex functions deployed to the self-hosted backend on Fargate
    (in-VPC via CodeBuild), tenant seeded, **deployed-stack smoke 7/7 against the live AWS backend**.
-⛔ embedder decision+key; rotations; Anthropic/model key for live classifier verdict (deferred — spine smoke needs none).
+✅ **Embedder LIVE (2026-06-28):** semantic retrieval proven on the deployed stack — **Bedrock Titan v2
+   (1024-d) via the `bedrock-runtime` PrivateLink VPC endpoint** (no internet/NAT). The stale "Bedrock
+   blocked" note was disproven by a live `invoke-model` test. Auth = a Bedrock bearer token (minted via
+   `iam create-service-specific-credential`), in the Convex env. `tools/embedder_proof.py` gets a ranked
+   top-hit on a zero-lexical-overlap query. **Named forward-dependency (embedder provider — the 5th passage,
+   alongside provenance · grantor · Gate-D twin-keying · single-writer Convex):** the stated target is
+   **Voyage**; Bedrock Titan is correct *for now* (no Voyage key on hand; Bedrock is internet-free in-VPC).
+   Switch = one line in `lib/embedder.ts` (Gemini is the parked, NAT-needing alternative) **plus a re-embed
+   if Voyage's dimension/space differs from Titan's 1024-d** — the switch is cheap, the re-index is not free.
+⛔ rotations; Anthropic/model key for live NEop dispatch (T9) + classifier verdict (deferred — spine + retrieval need none).
 
 ### P1 — Production substrate (S0) — FULL TERRAFORM SUBSTRATE on main, validate-clean
 ✅ S0.1 runtime container (PR #6 **merged**) · S0.2 secrets (`runtime/secrets.py`, env→keyring→refuse).

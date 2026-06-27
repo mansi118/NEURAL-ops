@@ -1,5 +1,18 @@
 # Embedder Unblock — Checklist (activation step 2, before governance/onboarding)
 
+> **✅ RESOLVED 2026-06-28 — and the recommendation below got corrected by a live test.** This checklist
+> recommended **Gemini**. But verifying the child (a live `bedrock invoke-model` with the account creds)
+> overturned the stale "Bedrock blocked" assumption: **Bedrock Titan v2 embeddings ARE available**, and a
+> `bedrock-runtime` **VPC endpoint** exists — so Convex reaches Bedrock with **no internet/NAT**, which is
+> strictly better for the no-NAT spine than Gemini (Google's API has no VPC endpoint → would need NAT).
+> **Shipped: Bedrock Titan via PrivateLink** (Mempalace `lib/embedder.ts` → `qwen.js`; Gemini parked).
+> Auth = a Bedrock bearer token minted via `aws iam create-service-specific-credential --service-name
+> bedrock.amazonaws.com`, stored in Secrets Manager, set in the Convex env (`convex env set
+> AWS_BEARER_TOKEN_BEDROCK`). **PROVEN live: `tools/embedder_proof.py` 7-chunk ranked retrieval, top hit =
+> the semantic target with zero lexical overlap, via `infra/build/embedder-verify.sh`.** The Gemini-specific
+> steps below are retained as the parked-alternative path (valid if a NAT/EIP ever lands).
+
+
 **Why first:** the spine smoke passes with the embedder deferred (`broker.retrieve` asserts *graceful*,
 not *non-empty*). But a real seat hits **live semantic retrieval on day one** — blind retrieval is a bad
 first impression you'd have to walk back. Unblock the embedder, confirm real hits, *then* governance + onboard.
