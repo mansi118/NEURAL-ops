@@ -32,6 +32,22 @@ from .safety_policy import Tier, render_tiers
 DEFAULT_MODEL = "claude-opus-4-8"  # valid pinned Anthropic id jcode accepts
 SHIM_MODULE = "neop_jcode_adapter.palace_mcp_shim"
 
+# Provider options jcode supports for a DIRECT key (no OAuth). "anthropic-api" reads ANTHROPIC_API_KEY;
+# "openrouter" is a named [providers.openrouter] gateway reading OPENROUTER_API_KEY — the unblocked path
+# when no Anthropic key is on hand (Bedrock is blocked for the LLM). Schema traced from jcode@master
+# (jcode-config-types NamedProviderConfig): type · base_url · api_key_env · default_model; key from env,
+# NEVER written to config. OpenRouter model ids are provider-prefixed ("anthropic/claude-3.5-haiku").
+ANTHROPIC_PROVIDER = "anthropic-api"
+OPENROUTER_PROVIDER = "openrouter"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_API_KEY_ENV = "OPENROUTER_API_KEY"
+OPENROUTER_DEFAULT_MODEL = "anthropic/claude-3.5-haiku"
+# Egress hosts the jail must allow per provider (consumed by isolation.IsolationUnit.egress_allowlist).
+PROVIDER_EGRESS_HOST = {
+    ANTHROPIC_PROVIDER: "api.anthropic.com",
+    OPENROUTER_PROVIDER: "openrouter.ai",
+}
+
 # safety surfaces → the concrete jcode built-in tool names whose denial they map to.
 # (self_dev has no built-in tool: denial = not running `jcode self-dev` + the container jail blocking
 #  access to jcode's own install. palace = MCP, auto-exposed, governed by the pre_tool hook in T5.)
@@ -92,16 +108,36 @@ class ConfigRenderer:
         return sorted(out)
 
     def render_config_toml(self, seat_class: str, *, model_id: Optional[str] = None,
+                           provider: str = ANTHROPIC_PROVIDER,
                            pre_tool_hook: Optional[str] = None, jail_enforced: bool = False) -> str:
+        if provider not in (ANTHROPIC_PROVIDER, OPENROUTER_PROVIDER):
+            raise ValueError(f"unsupported provider {provider!r} — one of "
+                             f"{ANTHROPIC_PROVIDER!r} | {OPENROUTER_PROVIDER!r}")
         disabled = self.disabled_tools(seat_class, jail_enforced=jail_enforced)
+        if provider == OPENROUTER_PROVIDER:
+            default_model = model_id or OPENROUTER_DEFAULT_MODEL
+        else:
+            default_model = model_id or self.default_model
         lines = [
             "# Rendered per-seat by neop_jcode_adapter.config_render — DO NOT hand-edit.",
-            "# Secrets are NEVER written here: the anthropic-api provider reads its key from the jailed",
-            "# container's environment; the palace signing key is a keyref the shim resolves at runtime.",
+            "# Secrets are NEVER written here: the provider reads its key from the jailed container's",
+            "# environment (api_key_env); the palace signing key is a keyref the shim resolves at runtime.",
             "",
             "[provider]",
-            "default_provider = " + _toml_str("anthropic-api"),  # direct API key (NOT OAuth "claude")
-            "default_model = " + _toml_str(model_id or self.default_model),
+            "default_provider = " + _toml_str(provider),  # direct API key path (NOT OAuth "claude")
+            "default_model = " + _toml_str(default_model),
+        ]
+        if provider == OPENROUTER_PROVIDER:
+            # Named gateway block (jcode NamedProviderConfig). Key from OPENROUTER_API_KEY in the jail env.
+            lines += [
+                "",
+                "[providers.openrouter]",
+                "type = " + _toml_str("openrouter"),
+                "base_url = " + _toml_str(OPENROUTER_BASE_URL),
+                "api_key_env = " + _toml_str(OPENROUTER_API_KEY_ENV),
+                "default_model = " + _toml_str(default_model),
+            ]
+        lines += [
             "",
             "[tools]",
             "disabled = " + _toml_str_array(disabled),
@@ -135,10 +171,12 @@ class ConfigRenderer:
 
     def render(self, *, palace_id: str, neop_id: str, seat_class: str, jcode_home: str,
                palace_mcp_url: str, signing_key_ref: str, model_id: Optional[str] = None,
+               provider: str = ANTHROPIC_PROVIDER,
                pre_tool_hook: Optional[str] = None, enable_get_closet: bool = False,
                jail_enforced: bool = False, write: bool = True) -> RenderedSeat:
         config_toml = self.render_config_toml(
-            seat_class, model_id=model_id, pre_tool_hook=pre_tool_hook, jail_enforced=jail_enforced)
+            seat_class, model_id=model_id, provider=provider,
+            pre_tool_hook=pre_tool_hook, jail_enforced=jail_enforced)
         mcp_json = self.render_mcp_json(
             palace_id=palace_id, neop_id=neop_id, palace_mcp_url=palace_mcp_url,
             signing_key_ref=signing_key_ref, enable_get_closet=enable_get_closet,

@@ -114,3 +114,49 @@ def test_config_toml_parses_if_tomllib_available():
     parsed = tomllib.loads(r().render_config_toml("B"))
     assert parsed["provider"]["default_provider"] == "anthropic-api"
     assert parsed["tools"]["disabled"] == ["bash", "browser", "swarm"]
+
+
+# ── OpenRouter provider (the model path when no Anthropic key is on hand) ──────
+from neop_jcode_adapter.config_render import (  # noqa: E402
+    OPENROUTER_PROVIDER, OPENROUTER_DEFAULT_MODEL, OPENROUTER_BASE_URL, OPENROUTER_API_KEY_ENV)
+
+
+def test_default_provider_unchanged_backward_compat():
+    # No provider arg ⇒ still anthropic-api (existing seats render byte-identical).
+    assert 'default_provider = "anthropic-api"' in r().render_config_toml("B")
+
+
+def test_openrouter_provider_block():
+    toml = r().render_config_toml("B", provider=OPENROUTER_PROVIDER)
+    assert 'default_provider = "openrouter"' in toml
+    assert "[providers.openrouter]" in toml
+    assert 'type = "openrouter"' in toml
+    assert f'base_url = "{OPENROUTER_BASE_URL}"' in toml
+    assert f'api_key_env = "{OPENROUTER_API_KEY_ENV}"' in toml
+    assert f'default_model = "{OPENROUTER_DEFAULT_MODEL}"' in toml  # provider-prefixed id
+
+
+def test_openrouter_model_override():
+    toml = r().render_config_toml("B", provider=OPENROUTER_PROVIDER, model_id="meta-llama/llama-3.1-70b")
+    assert 'default_model = "meta-llama/llama-3.1-70b"' in toml
+
+
+def test_openrouter_no_raw_secret():
+    # api_key_env names WHERE the key lives (a reference) — the key VALUE is never rendered.
+    toml = r().render_config_toml("A", provider=OPENROUTER_PROVIDER, jail_enforced=True)
+    assert "OPENROUTER_API_KEY" in toml          # the env-var NAME (reference) is expected
+    assert "sk-or-" not in toml                  # a real OpenRouter key value must NOT appear
+
+
+def test_unsupported_provider_raises():
+    with pytest.raises(ValueError):
+        r().render_config_toml("B", provider="bedrock")
+
+
+def test_openrouter_parses_if_tomllib_available():
+    tomllib = pytest.importorskip("tomllib")
+    parsed = tomllib.loads(r().render_config_toml("B", provider=OPENROUTER_PROVIDER))
+    assert parsed["provider"]["default_provider"] == "openrouter"
+    assert parsed["providers"]["openrouter"]["type"] == "openrouter"
+    assert parsed["providers"]["openrouter"]["api_key_env"] == "OPENROUTER_API_KEY"
+    assert parsed["providers"]["openrouter"]["base_url"] == OPENROUTER_BASE_URL
