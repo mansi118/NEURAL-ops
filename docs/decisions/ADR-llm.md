@@ -1,6 +1,6 @@
 # ADR-llm — Runtime LLM stack (D2 / M0·T0.1) — ⛔ DECISION PENDING (ML)
 
-**Status:** OPEN — needs ML. This is gate ⛔G-a: it sets which Secrets Manager key the runtime boots with
+**Status:** DECIDED 2026 — **OpenRouter primary** (FORCED: no Anthropic key on hand + Bedrock blocked; only ready path). ML may override by supplying a direct Anthropic key (then set llm_provider=anthropic). Model ids: classifier `anthropic/claude-3.5-haiku` via OpenRouter (frontdoor default); plan/general TBD per AC-10. Wired in M2 (terraform: llm_provider=openrouter + OPENROUTER_API_KEY managed secret). Originally gate ⛔G-a; it sets which Secrets Manager key the runtime boots with
 (`CLASSIFIER_PROVIDER` → `ANTHROPIC_API_KEY` vs `OPENROUTER_API_KEY`) and drives AC-10 cost.
 
 ## The contradiction (D2)

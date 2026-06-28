@@ -109,11 +109,22 @@ variable "managed_secret_keys" {
   # key lives in the Convex deployment env (`convex env set GEMINI_API_KEY`), never injected into the
   # runtime container. (Removed vestigial EMBEDDER_API_KEY — T1.5; nothing in the runtime read it.)
   default = [
-    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_API_KEY",   # kept as fallback (selfcheck fallback path); empty unless ML supplies one
+    "OPENROUTER_API_KEY",  # M2/D2: the live runtime LLM key (primary, CLASSIFIER_PROVIDER=openrouter)
     "PALACE_BRIDGE_API_KEY",
     "CONVEX_SELF_HOSTED_ADMIN_KEY",
     "CONVEX_INSTANCE_SECRET",
   ]
+}
+
+variable "llm_provider" {
+  description = <<-EOT
+    Runtime LLM provider (selfcheck CLASSIFIER_PROVIDER). M2/D2: "openrouter" is the forced V1 choice —
+    no Anthropic key on hand + Bedrock blocked (see docs/decisions/ADR-llm.md). Set "anthropic" only if
+    ML supplies a direct Anthropic key. The corresponding key must be a managed secret (above).
+  EOT
+  type        = string
+  default     = "openrouter"
 }
 
 # ── Self-host Convex (the SoT) ──────────────────────────────────
