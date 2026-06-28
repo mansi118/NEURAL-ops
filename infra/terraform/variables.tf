@@ -105,9 +105,11 @@ variable "convex_site_url" {
 variable "managed_secret_keys" {
   description = "Secret keys provisioned in Secrets Manager (empty values; set after apply)."
   type        = list(string)
+  # NOTE: the embedder credential is NOT here — embeddings compute server-side in Convex (D1), so the
+  # key lives in the Convex deployment env (`convex env set GEMINI_API_KEY`), never injected into the
+  # runtime container. (Removed vestigial EMBEDDER_API_KEY — T1.5; nothing in the runtime read it.)
   default = [
     "ANTHROPIC_API_KEY",
-    "EMBEDDER_API_KEY",
     "PALACE_BRIDGE_API_KEY",
     "CONVEX_SELF_HOSTED_ADMIN_KEY",
     "CONVEX_INSTANCE_SECRET",

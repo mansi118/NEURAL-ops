@@ -35,7 +35,8 @@ terraform apply tf.plan
 # 3. Set the secret VALUES (never in TF). One per managed_secret_keys:
 aws secretsmanager put-secret-value --secret-id neos-dogfood/ANTHROPIC_API_KEY        --secret-string "sk-ant-..."
 aws secretsmanager put-secret-value --secret-id neos-dogfood/PALACE_BRIDGE_API_KEY     --secret-string "$(openssl rand -hex 24)"
-# ... EMBEDDER_API_KEY, CONVEX_SELF_HOSTED_ADMIN_KEY
+# ... CONVEX_SELF_HOSTED_ADMIN_KEY, CONVEX_INSTANCE_SECRET
+# (embedder key is Convex-side, NOT a runtime secret: `convex env set GEMINI_API_KEY` — D1/T1.5)
 aws ecs update-service --cluster neos-dogfood-cluster --service neos-dogfood-runtime --force-new-deployment
 
 # 4. Verify
