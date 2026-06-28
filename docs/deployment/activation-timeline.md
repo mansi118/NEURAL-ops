@@ -30,9 +30,11 @@ The load-bearing child — the model — has no quick wiring, traced 2026-06-28:
   **no injection seam**. core.py is the **frozen deterministic reference** — a live model path there is the
   forbidden 2nd change (byte-identical except the one sanctioned AwaitingApproval edit). The OpenRouter key
   being on hand is necessary-not-sufficient: there is **no sanctioned place in the dispatch loop to call it**.
-- The **intended** live runtime is the **jcode adapter** (`neop_jcode_adapter/`, branch
-  `feat/neop-jcode-adapter`, **not merged** — only the T1 shim built). Its plan makes **T0 a go/no-go
-  STOP-and-show gate**; CLAUDE.md: **"STOP and ask before T9 (first real NEop) and before client data."**
+- The **intended** live runtime is the **jcode adapter** (`neop_jcode_adapter/`, merged PR #4). Built:
+  shim (T1) · config_render (T2) · audit/event taps (T4) · seat/safety presets. **STILL STUBS: `isolation.py`
+  (the Docker jail — the actual egress/security boundary) + `supervisor.py` (T3) + memory_promoter (T6).**
+  Its plan makes **T0 a go/no-go STOP-and-show gate**; CLAUDE.md: **"STOP and ask before T9 (first real NEop)
+  and before client data."** Needs a runnable jcode binary + the jail + a model key.
 
 | Step | Owner | Notes |
 |---|---|---|
