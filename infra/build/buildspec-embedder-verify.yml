@@ -1,0 +1,21 @@
+# VPC-attached CodeBuild — set the Gemini key in the Convex deployment env, deploy the Gemini-embedder
+# functions, and run the ranked-retrieval proof in-VPC. Offline (bundled node_modules; broker stdlib-only).
+# Env: CONVEX_API_URL, CONVEX_SITE_URL, SMOKE_CLIENT, CONVEX_ADMIN_KEY (SM), AWS_BEARER_TOKEN_BEDROCK (SM).
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+      python: 3.12
+  build:
+    commands:
+      - 'cd "$CODEBUILD_SRC_DIR/mempalace"'
+      - 'export CONVEX_SELF_HOSTED_URL="$CONVEX_API_URL"; export CONVEX_SELF_HOSTED_ADMIN_KEY="$CONVEX_ADMIN_KEY"'
+      - 'echo "=== set AWS_BEARER_TOKEN_BEDROCK in the Convex deployment env (server-side embedder credential) ==="'
+      - 'node_modules/.bin/convex env set AWS_BEARER_TOKEN_BEDROCK "$AWS_BEARER_TOKEN_BEDROCK"'
+      - 'echo "=== deploy functions (Bedrock Titan embedder via PrivateLink) ==="'
+      - 'node_modules/.bin/convex deploy -y'
+      - 'echo "=== embedder proof — ranked semantic retrieval (graceful-empty = FAIL) ==="'
+      - 'cd "$CODEBUILD_SRC_DIR/neural-ops"'
+      - 'export NEOS_SMOKE_API_URL="$CONVEX_API_URL"; export NEOS_SMOKE_SITE_URL="$CONVEX_SITE_URL"; export NEOS_SMOKE_ADMIN_KEY="$CONVEX_ADMIN_KEY"; export NEOS_SMOKE_CLIENT="$SMOKE_CLIENT"; export MEMPALACE_DIR="$CODEBUILD_SRC_DIR/mempalace"'
+      - 'python3 tools/embedder_proof.py'

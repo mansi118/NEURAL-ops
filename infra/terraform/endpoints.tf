@@ -14,6 +14,9 @@ locals {
     "ecr.dkr",
     "logs",
     "secretsmanager",
+    # Convex computes embeddings server-side via Bedrock Titan; PrivateLink lets it reach Bedrock with
+    # NO internet/NAT (the embedder for the no-NAT spine). Private DNS overrides bedrock-runtime.<region>.
+    "bedrock-runtime",
   ]
 }
 
