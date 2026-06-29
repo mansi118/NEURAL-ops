@@ -48,6 +48,12 @@ CPUS = "1.0"
 TMPFS = "/tmp:rw,noexec,nosuid,size=256m"
 CONTAINER_WORKDIR = "/work"
 
+# The jail's single host bind must be a per-seat working dir — NEVER a sensitive host path. A bind of
+# the docker socket = container escape; of `/`, `/etc`, `/proc`, … = host-FS exposure. The workdir is
+# the one writable bind (rootfs is read-only), so this is the highest-leverage escape vector to close.
+_SENSITIVE_MOUNT_PREFIXES = ("/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var/run", "/run", "/var/lib")
+_SENSITIVE_MOUNT_EXACT = frozenset({"/", "/home", "/usr", "/bin", "/sbin", "/lib", "/var"})
+
 
 def egress_allowlist(palace_mcp_url: str, provider: str = ANTHROPIC_PROVIDER) -> List[str]:
     """The ONLY hosts the jail permits out: the palace MCP host + the model provider host. Everything
@@ -61,6 +67,24 @@ def egress_allowlist(palace_mcp_url: str, provider: str = ANTHROPIC_PROVIDER) ->
     return sorted({host, PROVIDER_EGRESS_HOST[provider]})
 
 
+def _reject_sensitive_mount(path: str) -> None:
+    """Fail-closed: refuse a host bind that is/contains the docker socket or a system path. A normalized
+    absolute path is required (no relative/`..` traversal) so the check can't be sidestepped."""
+    import posixpath
+    if "docker.sock" in path:
+        raise ValueError(f"build_jail_spec: refusing to bind the docker socket {path!r} (container escape)")
+    if not path.startswith("/"):
+        raise ValueError(f"build_jail_spec: workdir_mount must be an absolute path — got {path!r}")
+    norm = posixpath.normpath(path)
+    if norm != path.rstrip("/") or ".." in path.split("/"):
+        raise ValueError(f"build_jail_spec: workdir_mount must be normalized (no '..'/trailing slash) — got {path!r}")
+    if norm in _SENSITIVE_MOUNT_EXACT:
+        raise ValueError(f"build_jail_spec: refusing to bind sensitive host path {norm!r}")
+    for pref in _SENSITIVE_MOUNT_PREFIXES:
+        if norm == pref or norm.startswith(pref + "/"):
+            raise ValueError(f"build_jail_spec: refusing to bind under sensitive host path {pref!r} (got {norm!r})")
+
+
 def build_jail_spec(seat: SeatId, image: str, *, palace_mcp_url: str, workdir_mount: str,
                     env_passthrough: List[str], provider: str = ANTHROPIC_PROVIDER) -> JailSpec:
     """Resolve the fail-closed jail for one seat. Pure + testable — no Docker call. Refuses on any input
@@ -72,6 +96,7 @@ def build_jail_spec(seat: SeatId, image: str, *, palace_mcp_url: str, workdir_mo
         raise ValueError("build_jail_spec: blank image — refusing")
     if not (workdir_mount and workdir_mount.strip()):
         raise ValueError("build_jail_spec: blank workdir_mount — refusing")
+    _reject_sensitive_mount(workdir_mount.strip())
     for e in env_passthrough:
         if "=" in e:
             raise ValueError(f"env_passthrough must be NAMES only (no values) — got {e!r} (no secret on disk)")
