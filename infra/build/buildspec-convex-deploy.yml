@@ -1,22 +1,18 @@
 # CodeBuild buildspec — deploy the Mempalace Convex functions to the INTERNAL self-hosted backend.
-# Runs VPC-attached (private subnets) so it can reach convex.<ns>:3210, which has no public IP.
-# Source zip = the Mempalace_NEOS repo root (package.json + convex/).
-#   CONVEX_SELF_HOSTED_URL        http://convex.<ns>:3210   (passed as a plain env var)
+# Runs VPC-attached in the spine's NO-NAT private subnets, so it has NO internet egress. Therefore:
+#   - node_modules is BUNDLED in the source zip (convex-deploy.sh) — do NOT npm install (would ETIMEDOUT).
+#   - invoke the LOCAL convex binary directly (node_modules/.bin/convex), never `npx` (which may hit the net).
+# Source zip = Mempalace_NEOS repo root + node_modules (symlinks preserved).
+#   CONVEX_SELF_HOSTED_URL        the internal convex API url (plain env var)
 #   CONVEX_SELF_HOSTED_ADMIN_KEY  from Secrets Manager (secrets-manager env, never plaintext)
+# NOTE: no echo/log lines with quoted colons — they break when this is passed via --buildspec-override.
 version: 0.2
 
 phases:
   install:
     runtime-versions:
       nodejs: 20
-  pre_build:
-    commands:
-      - echo "Target Convex: $CONVEX_SELF_HOSTED_URL"
-      - npm ci || npm install
   build:
     commands:
-      # --yes = non-interactive; self-hosted creds come from the env (URL + admin key).
-      - npx convex deploy -y
-  post_build:
-    commands:
-      - echo "Convex functions deployed to $CONVEX_SELF_HOSTED_URL"
+      # deps are bundled; deploy with the local convex CLI (no network) to the self-hosted backend.
+      - node_modules/.bin/convex deploy -y
