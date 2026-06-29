@@ -34,11 +34,18 @@ hmac:<adapter-hmac CA-4>, ts, mentions, metadata}` → `orchestrator.handle(raw,
 |---|---|
 | envelope contract, gateway auth/normalize/resolve/rate-limit, route, dispatch, **stream_tokens** | ✅ built + unit-green |
 | Synapse homeserver (RDS/EFS/ECS/CloudMap) | ✅ in TF, **gated off** |
-| **AS adapter service** (txn ingest → raw → handle → CS send) | 🔨 net-new — the bulk |
-| **AS registration** (`as_token`/`hs_token`, namespaces, `url`; one AS per tenant, CA-5) | 🔨 net-new |
-| **mxid → `tenant:requester` mapping** + minting the gateway's `token`/`hmac` (CA-4) | 🔨 net-new, small |
-| **outbound streaming render** (tokens → Matrix; incremental vs send-on-complete) | 🔨 net-new — see RISK-1 |
-| **infra activation**: deploy Synapse + public CS ingress (reuse `matrix.neuraledge.in`) + the AS container | `[U]`/🔨 |
+| **AS adapter service** (txn ingest → raw → handle → CS send) | ✅ **BUILT 2026-06-29** — `nc_channels/service.py` (dedup, hs_token auth, map→handle→send descriptors); live HTTP server + CS-API call box-gated |
+| **AS registration** (`as_token`/`hs_token`, namespaces, `url`; one AS per tenant, CA-5) | ✅ **BUILT** — `ASRegistration` dataclass + puppet-namespace enforcement |
+| **mxid → `tenant:requester` mapping** + minting the gateway's `token`/`hmac` (CA-4) | ✅ **BUILT** — `nc_channels/matrix_adapter.py` (`identity_from_mxid`, `mint_adapter_hmac`), binds clean to `gateway.normalize/resolve_identity` |
+| **outbound streaming render** (tokens → Matrix; incremental vs send-on-complete) | ✅ **BUILT** — send-on-complete (`stream_to_text`/`outbound_message`); `outbound_edit` (`m.replace`) ready for incremental (RISK-1) |
+| **infra activation**: deploy Synapse + public CS ingress (reuse `matrix.neuraledge.in`) + the AS container | `[U]`/🔨 — **box-gated** (`service.serve`/`_cs_api_call` raise until a reachable Synapse) |
+
+**Built 2026-06-29 (offline, tested):** `nc_channels/{matrix_adapter,service}.py` + 38 unit tests, all green;
+the AS contract confirmed against spec.matrix.org + Synapse docs (registration YAML, `Bearer hs_token`
+inbound, `?user_id=` puppeting within the users namespace, `m.replace` edit shape, txnId at-least-once
+dedup). The pure core binds verified-clean to the first-party `orchestrator.handle(raw)` seam. What
+remains is **box-gated**: the live AS HTTP server (`service.serve`) + the CS-API send (`_cs_api_call`),
+which need a reachable Synapse — i.e. subtasks 6–8 below (infra flip + first-contact via Element).
 
 ## Subtasks (ordered)
 1. **[½d, do FIRST] Confirm the Matrix AS contract against Synapse** — the exact registration YAML, the
