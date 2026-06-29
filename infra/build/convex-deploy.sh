@@ -70,15 +70,17 @@ else
   aws codebuild create-project --cli-input-json "$cfg" >/dev/null
 fi
 
-log "zipping Mempalace ($MEMPALACE_DIR) → S3"
+log "zipping Mempalace ($MEMPALACE_DIR) + node_modules → S3 (CodeBuild runs in no-NAT private subnets, so deps MUST be bundled — no npm install over the network)"
 zip="/tmp/mempalace-src.zip"
-( cd "$MEMPALACE_DIR" && rm -f "$zip" && zip -qr "$zip" . -x '*.git*' 'node_modules/*' )
+# -y PRESERVES symlinks (node_modules/.bin/convex is a symlink; following it breaks the CLI's relative paths)
+( cd "$MEMPALACE_DIR" && rm -f "$zip" && zip -qyr "$zip" . -x '*.git*' )
 KEY="src/convex-$(date +%s 2>/dev/null || echo manual).zip"
 aws s3 cp "$zip" "s3://${BUCKET}/${KEY}" >/dev/null
 
 log "starting in-VPC convex deploy"
 bid=$(aws codebuild start-build --project-name "$PROJECT_NAME" \
       --source-location-override "${BUCKET}/${KEY}" --source-type-override S3 \
+      --buildspec-override "$(cat "$HERE/buildspec-convex-deploy.yml")" \
       --query 'build.id' --output text)
 log "build id $bid — polling…"
 while :; do
