@@ -3,8 +3,8 @@
 # to the runtime build context. linux/amd64 (Fargate x86 default; switch to arm64 if the task goes Graviton).
 # The OIDC role `gha-ecr-push` is provisioned by infra/terraform/gha-oidc.tf (scoped to THIS repo).
 #
-# Bridge image lives in Mempalace_NEOS (services/Dockerfile) — it gets a sibling workflow there.
-# convex + falkordb images are public-mirror pulls (not built here).
+# Bridge image is built by the sibling Mempalace_NEOS/.github/workflows/build-push-ecr.yml (same OIDC
+# role; gha-oidc.tf trusts both repos). convex + falkordb images are public-mirror pulls (not built here).
 name: build-push-ecr
 
 on:
