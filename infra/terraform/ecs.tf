@@ -36,6 +36,9 @@ resource "aws_ecs_task_definition" "runtime" {
       environment = [
         { name = "NEOS_ENV", value = var.environment },
         { name = "CONVEX_SITE_URL", value = var.convex_site_url },
+        # M2/D2: runtime LLM provider = OpenRouter (forced — no Anthropic key + Bedrock blocked; ADR-llm).
+        # selfcheck reads CLASSIFIER_PROVIDER → requires OPENROUTER_API_KEY (a managed secret).
+        { name = "CLASSIFIER_PROVIDER", value = var.llm_provider },
       ]
 
       secrets = [

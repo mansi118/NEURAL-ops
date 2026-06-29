@@ -20,8 +20,9 @@ GEMINI_MODEL = "gemini-2.5-flash"   # free-tier model that actually has quota (2
 # This is the production-parity classifier path: COC is Claude-based, so proving the recorded-vs-live
 # seam against a Haiku-class Claude here closes the open production-lock question that Gemini (a
 # different model family) can only prove for the SEAM, not for the shipping model. Overridable via
-# OPENROUTER_MODEL_ID (e.g. "anthropic/claude-haiku-4.5" once confirmed live on the gateway).
-OPENROUTER_MODEL = "anthropic/claude-3.5-haiku"
+# OPENROUTER_MODEL_ID. M2/T2.2: confirmed live on the gateway — `anthropic/claude-3.5-haiku` is dead
+# ("no endpoints found", 404); `anthropic/claude-haiku-4.5` is the live haiku-class slug (spec §3.5.1).
+OPENROUTER_MODEL = "anthropic/claude-haiku-4.5"
 
 # BLOCKER (verified 2026-06-07, acct 071126865245 / user mansi-synlex):
 # Bedrock model *invocation* is blocked account-wide. Converse/InvokeModel return
