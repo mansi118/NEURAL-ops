@@ -63,6 +63,12 @@ GATED_TOOLS = frozenset({"palace_get_closet"})
 # reject loudly rather than silently drop, so spoof attempts are visible to the audit tap.
 _FORBIDDEN_ARG_KEYS = frozenset({"palaceId", "neopId", "tool", "params"})
 
+# Convex-internal privileged identities. `_admin` BYPASSES all ACL (CLAUDE.md invariant); `_system`
+# is the system scope. A seat must NEVER be one of these — blank scope defaulting to `_admin` is
+# already refused, but an EXPLICIT misconfig (NEOP_ID=_admin) would otherwise be baked AND signed,
+# turning the shim into a signed ACL-bypass channel. Fail-closed on both the seat and the palace.
+RESERVED_IDENTITIES = frozenset({"_admin", "_system"})
+
 
 class ShimError(Exception):
     """Base class for shim refusals."""
@@ -199,6 +205,13 @@ class PalaceShim:
             raise ScopeNotConfigured("NEOP_ID is blank")
         if not (palace_url and palace_url.strip()):
             raise ScopeNotConfigured("PALACE_MCP_URL is blank")
+        # Defense-in-depth: refuse a seat (or palace) configured AS a privileged bypass identity.
+        # Blank already fails closed above; this closes the EXPLICIT-misconfig path (NEOP_ID=_admin),
+        # which would otherwise be baked + signed into every request as a signed ACL bypass.
+        if neop_id.strip() in RESERVED_IDENTITIES:
+            raise ScopeNotConfigured(f"NEOP_ID '{neop_id.strip()}' is a reserved privileged identity")
+        if palace_id.strip() in RESERVED_IDENTITIES:
+            raise ScopeNotConfigured(f"PALACE_ID '{palace_id.strip()}' is a reserved privileged identity")
         self.palace_url = palace_url.strip()
         self.palace_id = palace_id.strip()
         self.neop_id = neop_id.strip()
