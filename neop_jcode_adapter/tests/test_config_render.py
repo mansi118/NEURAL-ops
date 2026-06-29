@@ -160,3 +160,39 @@ def test_openrouter_parses_if_tomllib_available():
     assert parsed["providers"]["openrouter"]["type"] == "openrouter"
     assert parsed["providers"]["openrouter"]["api_key_env"] == "OPENROUTER_API_KEY"
     assert parsed["providers"]["openrouter"]["base_url"] == OPENROUTER_BASE_URL
+
+
+# ── T5: pre_tool hook integration (the dynamic swarm tier) ────────────────────
+def test_hook_enables_swarm_for_class_b():
+    # With the hook live AND the swarm grant, Class B keeps swarm ENABLED so the hook can gate it.
+    assert r().disabled_tools("B", hook_active=True, swarm_enabled=True) == ["bash", "browser"]
+
+
+def test_hook_keeps_swarm_disabled_for_class_c():
+    # Class C has no swarm grant → swarm stays disabled even with the hook live.
+    assert r().disabled_tools("C", hook_active=True, swarm_enabled=False) == ["bash", "browser", "swarm"]
+
+
+def test_no_hook_means_swarm_disabled_even_with_grant():
+    # Backward compat: without a hook, the grant is inert (no native ask tier) → swarm disabled.
+    assert r().disabled_tools("B", swarm_enabled=True) == ["bash", "browser", "swarm"]
+
+
+def test_render_threads_swarm_enable_into_toml():
+    toml = r().render_config_toml("B", pre_tool_hook="python3 -m neop_jcode_adapter.pre_tool_hook",
+                                  swarm_enabled=True)
+    assert 'disabled = ["bash", "browser"]' in toml  # swarm not disabled
+    assert "[hooks]" in toml
+
+
+def test_pre_tool_command():
+    assert r().pre_tool_command() == "python3 -m neop_jcode_adapter.pre_tool_hook"
+    assert r().pre_tool_command(python="/jail/venv/bin/python") == \
+        "/jail/venv/bin/python -m neop_jcode_adapter.pre_tool_hook"
+
+
+def test_hook_env_is_baked_policy():
+    env = ConfigRenderer.hook_env("b", swarm_enabled=True, jail_enforced=False)
+    assert env == {"NEOP_SEAT_CLASS": "B", "NEOP_SWARM_ENABLED": "1", "NEOP_JAIL_ENFORCED": "0"}
+    env2 = ConfigRenderer.hook_env("A", swarm_enabled=False, jail_enforced=True)
+    assert env2 == {"NEOP_SEAT_CLASS": "A", "NEOP_SWARM_ENABLED": "0", "NEOP_JAIL_ENFORCED": "1"}

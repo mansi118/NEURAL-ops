@@ -31,6 +31,8 @@ from .safety_policy import Tier, render_tiers
 
 DEFAULT_MODEL = "claude-opus-4-8"  # valid pinned Anthropic id jcode accepts
 SHIM_MODULE = "neop_jcode_adapter.palace_mcp_shim"
+MCP_SERVER_NAME = "cortex-palace"  # mcp.json server key; palace tools reach jcode as mcp__cortex-palace__*
+PRE_TOOL_HOOK_MODULE = "neop_jcode_adapter.pre_tool_hook"  # the T5 dynamic ask/allow gate
 
 # Provider options jcode supports for a DIRECT key (no OAuth). "anthropic-api" reads ANTHROPIC_API_KEY;
 # "openrouter" is a named [providers.openrouter] gateway reading OPENROUTER_API_KEY — the unblocked path
@@ -92,7 +94,8 @@ class ConfigRenderer:
     def __init__(self, default_model: str = DEFAULT_MODEL):
         self.default_model = default_model
 
-    def disabled_tools(self, seat_class: str, *, jail_enforced: bool = False) -> List[str]:
+    def disabled_tools(self, seat_class: str, *, jail_enforced: bool = False,
+                       hook_active: bool = False, swarm_enabled: bool = False) -> List[str]:
         cls = seat_class.upper()
         tiers = render_tiers(cls)
         if cls == "A" and not jail_enforced:
@@ -105,15 +108,40 @@ class ConfigRenderer:
         for surface, tools in _SURFACE_TO_TOOLS.items():
             if tiers[surface] in _DENY_TIERS:
                 out.update(tools)
+        # With the T5 pre_tool hook live, swarm's PERMISSION_REQUIRED tier is a REAL ask/allow gate
+        # instead of collapsing to deny: keep the tool ENABLED so the hook can grant it for seats that
+        # carry the swarm grant (Class B, swarm_enabled=True). Class C (no grant) stays disabled here,
+        # and the hook denies it too (defence in depth). Opt-in only — default rendering is unchanged.
+        if hook_active and swarm_enabled and tiers["swarm_spawn"] == Tier.PERMISSION_REQUIRED:
+            out.discard("swarm")
         return sorted(out)
+
+    def pre_tool_command(self, python: str = "python3") -> str:
+        """The command string for ``[hooks].pre_tool`` — jcode tokenises it shell-style and runs it
+        directly (no shell). Runs the baked-policy gate (pre_tool_hook.main)."""
+        return f"{python} -m {PRE_TOOL_HOOK_MODULE}"
+
+    @staticmethod
+    def hook_env(seat_class: str, *, swarm_enabled: bool, jail_enforced: bool) -> dict:
+        """The per-seat policy the pre_tool hook reads — baked into the seat container env by the
+        supervisor/IsolationUnit, NEVER taken from the model. Mirrors palace_mcp_shim baking scope."""
+        return {
+            "NEOP_SEAT_CLASS": seat_class.upper(),
+            "NEOP_SWARM_ENABLED": "1" if swarm_enabled else "0",
+            "NEOP_JAIL_ENFORCED": "1" if jail_enforced else "0",
+        }
 
     def render_config_toml(self, seat_class: str, *, model_id: Optional[str] = None,
                            provider: str = ANTHROPIC_PROVIDER,
-                           pre_tool_hook: Optional[str] = None, jail_enforced: bool = False) -> str:
+                           pre_tool_hook: Optional[str] = None, jail_enforced: bool = False,
+                           swarm_enabled: bool = False) -> str:
         if provider not in (ANTHROPIC_PROVIDER, OPENROUTER_PROVIDER):
             raise ValueError(f"unsupported provider {provider!r} — one of "
                              f"{ANTHROPIC_PROVIDER!r} | {OPENROUTER_PROVIDER!r}")
-        disabled = self.disabled_tools(seat_class, jail_enforced=jail_enforced)
+        # When a pre_tool hook is wired, swarm's ask-tier becomes real → let disabled_tools keep B's
+        # swarm enabled (the hook gates it). Without a hook the rendering is unchanged.
+        disabled = self.disabled_tools(seat_class, jail_enforced=jail_enforced,
+                                       hook_active=pre_tool_hook is not None, swarm_enabled=swarm_enabled)
         if provider == OPENROUTER_PROVIDER:
             default_model = model_id or OPENROUTER_DEFAULT_MODEL
         else:
@@ -159,7 +187,7 @@ class ConfigRenderer:
             env["PALACE_ENABLE_GET_CLOSET"] = "1"
         doc = {
             "servers": {
-                "cortex-palace": {
+                MCP_SERVER_NAME: {
                     "command": "python",
                     "args": ["-m", SHIM_MODULE],
                     "env": env,
@@ -173,10 +201,11 @@ class ConfigRenderer:
                palace_mcp_url: str, signing_key_ref: str, model_id: Optional[str] = None,
                provider: str = ANTHROPIC_PROVIDER,
                pre_tool_hook: Optional[str] = None, enable_get_closet: bool = False,
-               jail_enforced: bool = False, write: bool = True) -> RenderedSeat:
+               jail_enforced: bool = False, swarm_enabled: bool = False,
+               write: bool = True) -> RenderedSeat:
         config_toml = self.render_config_toml(
             seat_class, model_id=model_id, provider=provider,
-            pre_tool_hook=pre_tool_hook, jail_enforced=jail_enforced)
+            pre_tool_hook=pre_tool_hook, jail_enforced=jail_enforced, swarm_enabled=swarm_enabled)
         mcp_json = self.render_mcp_json(
             palace_id=palace_id, neop_id=neop_id, palace_mcp_url=palace_mcp_url,
             signing_key_ref=signing_key_ref, enable_get_closet=enable_get_closet,
@@ -195,5 +224,7 @@ class ConfigRenderer:
             mcp_json_path=mcp_path,
             config_toml=config_toml,
             mcp_json=mcp_json,
-            disabled_tools=self.disabled_tools(seat_class, jail_enforced=jail_enforced),
+            disabled_tools=self.disabled_tools(seat_class, jail_enforced=jail_enforced,
+                                               hook_active=pre_tool_hook is not None,
+                                               swarm_enabled=swarm_enabled),
         )
