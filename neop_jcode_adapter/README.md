@@ -19,6 +19,11 @@ Invariants + verified corrections: repo-root [`../CLAUDE.md`](../CLAUDE.md).
 | **T6** | `memory_promoter` | ✅ **built + green** — parses the real `jcode memory export --scope all` shape (traced: a flat JSON **array of MemoryEntry**, `category` bare-string \| `{"custom":…}`, includes superseded `active:false` → dropped). Export is durable-only by construction (no durable Session scope) so ephemeral chatter never appears. Promotes live entries via `palace_remember` **through the shim** (injected `writer` seam → pure/offline-testable; `make_shim_writer` for prod). Best-effort: a single write failure never aborts the batch. |
 | — | `seat_classes` | ✅ presets built (pure data) |
 
+**All offline-buildable components are now built + green.** What remains is box-exec only: the Docker
+jail (`isolation._docker_run` / `supervisor._spawn`), running `jcode`, and the **T0 go/no-go spike** —
+the exact replay recipe is in [`docs/deployment/jcode-t0-spike-runbook.md`](../docs/deployment/jcode-t0-spike-runbook.md)
+(STOP-and-show), then the **T7 red-team** gate before any client data.
+
 ## The shim is the tenant chokepoint
 
 One `palace_mcp_shim` process == one seat. It exposes only `palace_search` / `palace_remember`
