@@ -19,12 +19,16 @@ ranking top. An empty-but-graceful result is **FAILURE** here (the opposite of t
 whose graceful-empty tolerance is exactly why it did *not* catch a dead embedder). **Passed 2026-06-28** on
 the live AWS stack. ⇒ "embedder live" here means *ranked hits*, per the correct done-bar.
 
-## The Bedrock-access nuance (why this doesn't contradict "Bedrock blocked")
-"Bedrock blocked" was diagnosed (2026-06-07) for the **LLM invoke path** (ValidationException
-"Operation not allowed"). The **Titan-embeddings invoke path succeeded** (2026-06-28) — i.e. model access
-is effectively available for Titan via the bearer-token path. The two Bedrock invoke paths have **diverged**;
-do not carry "Bedrock blocked" as a blanket account fact. (The LLM went OpenRouter per D2 regardless, so the
-LLM-side block is moot for shipping.)
+## The Bedrock-access nuance — UPDATED 2026-06-29 (T0): "Bedrock blocked" is FALSE, even for generative
+The old "Bedrock blocked" (2026-06-07) was diagnosed for the **LLM invoke path** (ValidationException).
+Titan **embeddings** succeeded 2026-06-28. The jcode T0 spike (**2026-06-29**) then disproved the
+LLM-invoke block too: Bedrock **generative** invoke works in-VPC — **Nova** (`apac.amazon.nova-lite-v1:0`,
+via the bearer-token bedrock-runtime endpoint) answered cleanly and now serves **ingestion entity-extraction**
+(Mempalace `convex/lib/bedrockLlm.ts`, live; it replaced Gemini, which is a public Google API unreachable on
+the no-NAT VPC). The **only** genuine remaining Bedrock block is **Anthropic models** (use-case form), which
+is model-specific, NOT account-wide. So: Titan embed ✅ in-VPC · Nova/Llama generative ✅ in-VPC ·
+Anthropic-on-Bedrock ⛔. The runtime NEop LLM is OpenRouter by the **D2 decision**, not because Bedrock is
+blocked. **Do not carry "Bedrock blocked" — blanket OR LLM-scoped — as a fact.**
 
 ## Why Titan over the spec's Gemini-768 (the reasons weighed)
 | Reason to switch to Gemini-768 | Bites? |

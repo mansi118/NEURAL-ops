@@ -19,7 +19,7 @@ is NOT "production-ready" (that's the Day-90 gate) and NOT the T7 isolation proo
 | # | Prereq | How to satisfy on the box | Status |
 |---|--------|---------------------------|--------|
 | 1 | A runnable **jcode** binary | build/install `1jehuang/jcode`@master on the host (or in the seat image). `jcode --version` works. | box |
-| 2 | A **model key** | `ANTHROPIC_API_KEY` (direct) **or** `OPENROUTER_API_KEY` (the on-hand path; Bedrock is blocked for the LLM). Rides the env, never config/argv. | key |
+| 2 | A **model key** | `ANTHROPIC_API_KEY` (direct) **or** `OPENROUTER_API_KEY` (the on-hand path; chosen by key-availability, NOT a Bedrock block — Bedrock generative works in-VPC, only Anthropic-on-Bedrock is gated). Rides the env, never config/argv. | key |
 | 3 | A **live palace** `/mcp` | already LIVE — Convex on AWS (`docs/deployment/dogfood-spine-runbook.md`); the `.convex.site` URL + a test `(palaceId, neopId)` + the signing keyref. | ✅ |
 | 4 | **Docker** | present on the target host (not WSL). | box |
 

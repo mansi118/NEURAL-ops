@@ -1,7 +1,8 @@
 # ADR-llm — Runtime LLM stack (D2 / M0·T0.1) — ✅ DECIDED + SHIPPED (M2)
 
 **Status:** DECIDED + **SHIPPED in M2 (NEURAL-ops #46, merged 2026-06-29)** — **OpenRouter primary**
-(FORCED: no Anthropic key on hand + Bedrock LLM-invoke blocked; only ready path). ML may override with a
+(**by decision**: no Anthropic key on hand; OpenRouter is the on-hand path. NOT because Bedrock is blocked —
+Bedrock generative works in-VPC, see below). ML may override with a
 direct Anthropic key (then `llm_provider=anthropic`). **Model id as shipped:** classifier =
 **`anthropic/claude-haiku-4.5`** via OpenRouter. NOTE: the earlier `anthropic/claude-3.5-haiku` slug
 **404s on the gateway** ("no endpoints found") — corrected during M2's live COC re-grade (4/4 agreement).
@@ -10,10 +11,13 @@ managed Secrets Manager slot (`variables.tf`) — set the value out-of-band befo
 Gate ⛔G-a; sets which key the runtime boots with (`CLASSIFIER_PROVIDER` → `ANTHROPIC_API_KEY` vs
 `OPENROUTER_API_KEY`) and drives AC-10 cost. **Still open:** plan/general model ids + AC-10 cost (record below).
 
-**Bedrock scope (was over-broad):** "Bedrock blocked" is true for the **LLM invoke path** (2026-06-07
-ValidationException). It is **NOT** true for **Titan embeddings**, which are LIVE in-VPC via the
-bedrock-runtime PrivateLink endpoint (ranked-retrieval proven 2026-06-28) — see `embedder-as-built.md`.
-The two Bedrock invoke paths have diverged; don't carry "Bedrock blocked" as a blanket fact.
+**Bedrock scope — CORRECTED 2026-06-29 (T0):** "Bedrock blocked" is **FALSE**, including for generative.
+The original 2026-06-07 ValidationException was an **Anthropic-model** use-case-form block, not an account
+or service block. Verified in-VPC: **Titan embeddings** LIVE (ranked-retrieval, 2026-06-28) AND **Nova
+generative** LIVE (`apac.amazon.nova-lite-v1:0`, serving ingestion extraction, 2026-06-29) — both via the
+bedrock-runtime PrivateLink endpoint + bearer token. The **only** Bedrock block is **Anthropic models**
+(model-specific). Do **NOT** carry "Bedrock blocked" — blanket or LLM-scoped — as a fact. OpenRouter is the
+runtime LLM **by decision**, not by Bedrock constraint.
 
 **Spec deviation (as-built):** NE-TSD-NC-V2 §3.5.1 (`docs/NE-TSD-NC-V2-S3-Runtime-Ops.md:324`) records the
 *intended* Sonnet/GPT-5.4-mini/Haiku stack (GLM = V2 fallback); the as-built V1 ships OpenRouter-routed.
@@ -25,9 +29,9 @@ That spec line is annotated AS-BUILT; reconcile fully when plan/general ids are 
 
 ## What's true in the code/account (traced)
 - Runtime selects provider via `CLASSIFIER_PROVIDER` (`runtime/selfcheck.py`): `anthropic`→`ANTHROPIC_API_KEY`, `openrouter`→`OPENROUTER_API_KEY`, default `anthropic`. Boot requires the primary key.
-- **On hand:** `OPENROUTER_API_KEY` (in `.env`, also a Secrets Manager slot can be added). **No Anthropic key** is on hand. **Bedrock is blocked** account-wide (so Anthropic-via-Bedrock is out).
+- **On hand:** `OPENROUTER_API_KEY` (in `.env`, also a Secrets Manager slot can be added). **No Anthropic key** is on hand. Bedrock generative works in-VPC (Nova/Llama), but **Anthropic-via-Bedrock is out** (use-case form pending) — so Bedrock is not a path to Anthropic models specifically.
 - The **live NEop execution path is the jcode adapter** (config_render already supports an `anthropic-api` provider AND an `openrouter` provider — built). So either choice is wireable.
-- ⇒ Practically, with no Anthropic key + Bedrock blocked, **OpenRouter is the only ready path** unless ML provides a direct Anthropic/OpenAI key.
+- ⇒ Practically, with no Anthropic key on hand, **OpenRouter is the ready path** unless ML provides a direct Anthropic/OpenAI key. (This is a key-availability call, not a Bedrock-block call.)
 
 ## Options for ML
 1. **OpenRouter as primary (replacement)** — use the on-hand key; pick model ids (e.g. GLM-5.2, or `anthropic/claude-…` via OpenRouter). Cheapest to ship; matches recent direction. Spec §3.5.1 doc must be updated to record the replacement.
