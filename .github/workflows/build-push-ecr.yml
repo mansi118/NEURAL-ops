@@ -1,0 +1,65 @@
+# M3·T3.1 — durable image pipeline: GitHub Actions → OIDC (no long-lived keys) → ECR.
+# Builds the NEOS runtime image and pushes it to ECR. Manual trigger (workflow_dispatch) + on changes
+# to the runtime build context. linux/amd64 (Fargate x86 default; switch to arm64 if the task goes Graviton).
+# The OIDC role `gha-ecr-push` is provisioned by infra/terraform/gha-oidc.tf (scoped to THIS repo).
+#
+# Bridge image lives in Mempalace_NEOS (services/Dockerfile) — it gets a sibling workflow there.
+# convex + falkordb images are public-mirror pulls (not built here).
+name: build-push-ecr
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag (default: the commit SHA)"
+        required: false
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "requirements.txt"
+      - "runtime/**"
+      - "frontdoor/**"
+      - "acp/**"
+      - "nrt/**"
+      - "agents/**"
+      - "deploy/**"
+      - ".github/workflows/build-push-ecr.yml"
+
+permissions:
+  id-token: write   # required for OIDC
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPO: neos-dogfood-runtime
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC (no stored keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::071126865245:role/gha-ecr-push
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push runtime image (linux/amd64)
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ github.event.inputs.tag || github.sha }}
+        run: |
+          set -euo pipefail
+          IMAGE="$REGISTRY/$ECR_REPO:${TAG::12}"
+          docker build --platform linux/amd64 -f Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "pushed $IMAGE"
+          # Repo is IMMUTABLE — pin the digest for terraform.tfvars (no :latest re-push).
+          aws ecr describe-images --repository-name "$ECR_REPO" --image-ids imageTag="${TAG::12}" \
+            --query 'imageDetails[0].imageDigest' --output text
