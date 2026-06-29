@@ -7,8 +7,8 @@ Account `071126865245`, `ap-south-1`. **Two plan assumptions (D1) contradict rea
 - **ECR repos:** `neos-dogfood-runtime` · `neos-dogfood-bridge` · `neos-dogfood-convex` · `neos-dogfood-falkordb` (all images pushed; spine live).
 - **Dockerfiles:** runtime → `NEURAL-ops/Dockerfile`; bridge → `Mempalace_NEOS/services/Dockerfile`; convex + falkordb → mirrored from public images (ghcr/DockerHub → ECR).
 - **Convex DB backend:** **SQLite-on-EFS**, `desired_count = 1` (single writer). NOT RDS. (Postgres-swap is the named multi-instance prerequisite.) → resolves T4.1: SQLite-on-EFS, no RDS for Convex.
-- **Secrets Manager IDs:** `neos-dogfood/{ANTHROPIC_API_KEY, OPENROUTER—(absent), EMBEDDER_API_KEY, PALACE_BRIDGE_API_KEY, CONVEX_SELF_HOSTED_ADMIN_KEY, CONVEX_INSTANCE_SECRET, GEMINI_API_KEY, AWS_BEARER_TOKEN_BEDROCK}`. (No OPENROUTER secret yet — would be added at M2/D2.)
-- **Runtime LLM env var:** `CLASSIFIER_PROVIDER` selects the provider; `PROVIDER_KEYS = {anthropic: ANTHROPIC_API_KEY, openrouter: OPENROUTER_API_KEY}`, default `anthropic`. So the boot key follows the D2 decision.
+- **Secrets Manager IDs:** `neos-dogfood/{ANTHROPIC_API_KEY, OPENROUTER_API_KEY, PALACE_BRIDGE_API_KEY, CONVEX_SELF_HOSTED_ADMIN_KEY, CONVEX_INSTANCE_SECRET, GEMINI_API_KEY, AWS_BEARER_TOKEN_BEDROCK}`. `OPENROUTER_API_KEY` is now a managed slot (M2 added it to `variables.tf`; set the value out-of-band). `EMBEDDER_API_KEY` was dropped (T1.5 — vestigial; embeddings are server-side in Convex).
+- **Runtime LLM env var:** `CLASSIFIER_PROVIDER` selects the provider; `PROVIDER_KEYS = {anthropic: ANTHROPIC_API_KEY, openrouter: OPENROUTER_API_KEY}`. **D2 DECIDED + SHIPPED (M2, #46): `llm_provider`/`CLASSIFIER_PROVIDER` default = `openrouter`**; classifier id = `anthropic/claude-haiku-4.5` (the `-3.5-haiku` slug 404s). See `docs/decisions/ADR-llm.md`.
 - **Network:** `enable_nat_gateway = false` (deployed). VPC endpoints only: ecr.api/dkr · s3 · logs · secretsmanager · **bedrock-runtime**. ⇒ the deployed Convex has **no internet egress**; only AWS services via PrivateLink are reachable.
 - **Live embedder TODAY:** `lib/embedder.ts` selector → `qwen.js` = **Bedrock Titan v2 @ 1024-dim** via the bedrock-runtime PrivateLink endpoint. Live-proven (ranked retrieval). `lib/gemini.ts` exists but parked (gemini-embedding-001 @ 1024 via MRL). Schema vector index = **1024-dim**.
 
@@ -33,12 +33,14 @@ the embedder live for "real ranked retrieval" — a sequencing conflict.
 | **A (status quo)** | Bedrock Titan **@1024**, PrivateLink | ✅ yes (live-proven) | ✗ not Gemini, not 768 |
 | **B** | Gemini-embedding-001 **MRL-768** + L2-norm + asymmetric task types | ❌ needs NAT (EIP) | ~ Gemini+768+asymmetric, but via MRL (D1 disavowed MRL) |
 | **C** | Gemini native **3072** | ❌ needs NAT (EIP) | ~ Gemini+asymmetric, 4× index cost, not 768 |
-**Recommendation:** **A for the live spine now** (it works, empty corpus), and adopt **B as the V1-canonical
-embedder when NAT lands** (free re-index pre-onboarding via the one-line selector flip). This honors D1's intent
-(Gemini, 768, asymmetric, L2-norm) as soon as the spine has egress, without faking a native-768 that doesn't exist
-or running Gemini where it can't reach. **Requires ML: (1) accept MRL-768 (native-768 unavailable), (2) authorize
-NAT (an EIP) for the live spine.**
+**DECIDED (2026-06-29): ship Option A (Titan @1024) for V1.** It works on the live no-NAT spine and the
+ranked-retrieval done-bar is met (not "calls succeed"). **Option B (Gemini MRL-768) is parked/optional**,
+not a blocker — promote it only if a reason bites: spec-alignment (S2 §2.5.3), portability (Titan ties V1 to
+this account's Bedrock model-access state + a service-specific credential), or cost. Promotion is gated on
+the **NAT decision** (Gemini needs egress) and is a free re-index pre-onboarding (one-line selector flip,
+PR #26 held open). Full decision record + lock-in detail: `docs/decisions/embedder-as-built.md`.
 
 ## Other deltas
-- T0.1/D2 (runtime LLM) — ⛔ ML decision pending → `docs/decisions/ADR-llm.md`.
+- **T0.1/D2 (runtime LLM) — ✅ DECIDED + SHIPPED (M2, #46): OpenRouter primary** (`docs/decisions/ADR-llm.md`).
 - T0.2/G-b (cred rotation) — **parked per ML instruction ("leave the credentials thing")**; not pursued.
+- **Embedder — ✅ as-built = Titan @1024 (#41 + #25 merged); Gemini-768 (#26) parked** (`embedder-as-built.md`).

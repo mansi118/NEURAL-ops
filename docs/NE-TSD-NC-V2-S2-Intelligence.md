@@ -352,6 +352,11 @@ flowchart LR
 | V1 dev/staging | Gemini `embedding-001` | 768 | API |
 | V2 prod / PrivatNEOS | Qwen3-Embedding-8B | 4096 | **self-hosted** |
 
+> **AS-BUILT (V1, 2026-06-29):** V1 ships **Bedrock Titan v2 @1024** via PrivateLink (in-VPC, no NAT;
+> ranked-retrieval proven), NOT Gemini `embedding-001` @768. Reasons: native-768 is unavailable on the key
+> and Gemini can't reach the no-NAT spine. Gemini-768 (MRL) is parked, NAT-gated. Decision record:
+> `docs/decisions/embedder-as-built.md`.
+
 Two-phase index — **hot:** FalkorDB embedding nodes · **cold:** S3 + on-demand re-rank.
 
 ---
