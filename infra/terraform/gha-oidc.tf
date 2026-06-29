@@ -1,12 +1,16 @@
 # M3·T3.1 — GitHub Actions → OIDC → ECR. No long-lived AWS keys: GHA exchanges its OIDC token for a
 # short-lived role session scoped to THIS repo. The role can ONLY push to the project's ECR repos.
 #
-# Apply is small + cheap (IAM only, no ongoing cost). `gha_repo` is the GitHub "owner/name".
+# Apply is small + cheap (IAM only, no ongoing cost). `gha_repos` are the GitHub "owner/name" slugs.
 
-variable "gha_repo" {
-  description = "GitHub repo allowed to assume the ECR-push role (owner/name)."
-  type        = string
-  default     = "mansi118/NEURAL-ops"
+variable "gha_repos" {
+  description = <<-EOT
+    GitHub repos allowed to assume the ECR-push role (owner/name). Both image builds need it:
+    NEURAL-ops (runtime image) and Mempalace_NEOS (bridge image). The role's ECR-push permission is
+    scoped to neos-dogfood-* regardless, so both repos push only to the project's repos.
+  EOT
+  type        = list(string)
+  default     = ["mansi118/NEURAL-ops", "mansi118/Mempalace_NEOS"]
 }
 
 data "aws_caller_identity" "gha" {}
@@ -36,11 +40,11 @@ data "aws_iam_policy_document" "gha_trust" {
       variable = "token.actions.githubusercontent.com:aud"
       values   = ["sts.amazonaws.com"]
     }
-    # Only workflows in THIS repo (any branch/tag) may assume the role.
+    # Only workflows in THESE repos (any branch/tag) may assume the role.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.gha_repo}:*"]
+      values   = [for r in var.gha_repos : "repo:${r}:*"]
     }
   }
 }
