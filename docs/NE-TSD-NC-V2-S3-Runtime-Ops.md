@@ -323,6 +323,10 @@ flowchart LR
 
 **Models:** Claude Sonnet for planning · GPT-5.4-mini general · Haiku-class classifier. V2 adds ZAI/GLM-5 as a local fallback.
 
+> **AS-BUILT (V1, 2026-06-29, D2 shipped in M2 #46):** V1 routes the LLM via **OpenRouter primary**
+> (classifier = `anthropic/claude-haiku-4.5`; plan/general ids still TBD per AC-10). No Anthropic key on hand
+> + Bedrock LLM-invoke blocked ⇒ OpenRouter is the only ready path. Decision record: `docs/decisions/ADR-llm.md`.
+
 ### 3.5.2 Critical path — dependency order
 
 ```mermaid

@@ -103,7 +103,12 @@ them for a narrow question — pick the one(s) that fit. (Sub-files pending — 
 | The product model: twin → shadow → fidelity loop, the 6 meta-NEops, scope V1/V2, pricing, success criteria (AC-1…AC-10), the canonical message + twin.md schemas | `references/neuralchat-twin.md` |
 | NEop anatomy, the named-NEop roster, the NeP self-improvement loop, NeP types, NEOP Marketplace economics, the OpenClaw capability mapping | `references/neops-and-neps.md` |
 | Security: the 4-layer ACL in detail, ACP envelopes + Ed25519, tenant isolation, the twin seat-scope foot-gun, secrets posture | `references/acl-acp-security.md` |
-| Current build state: repos, commits, what's green, what's blocked (dogfish), the jcode adapter, LLM swap (GLM-5.2/OpenRouter), Bedrock block, security action items | `references/build-state.md` |
+| Current build state: repos, commits, what's green, the live AWS spine (smoke 7/7), the jcode adapter (offline-complete; box-gated T0/T7), **LLM = OpenRouter primary (D2 shipped, classifier `anthropic/claude-haiku-4.5`)**, **embedder = Bedrock Titan @1024 live via PrivateLink (Gemini-768 parked)**, security action items | `references/build-state.md` |
+
+> **AS-BUILT reconciliation (2026-06-29):** ground-truth that supersedes older "Bedrock blocked / Gemini-768"
+> framing — D2 = OpenRouter (`docs/decisions/ADR-llm.md`); embedder = Titan @1024 (`docs/decisions/embedder-as-built.md`);
+> spine LIVE on AWS; path to Day-90 = `docs/deployment/path-to-day-90.md`. (NB: `references/build-state.md`
+> is not checked into this repo — maintain it against these records.)
 
 ---
 

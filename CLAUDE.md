@@ -7,7 +7,9 @@ INVARIANTS (do not violate — see plan §1):
 - Memory = CORTEX-PALACE ops only (palace_search / palace_remember / [palace_get_closet after T8]).
 - Scope is (palaceId, neopId); NEVER accept scope from the model. The shim bakes + signs it.
 - ACL is fail-open until S0.3 → the container jail carries isolation. Do not weaken the jail.
-- jcode is configured, never forked. Bedrock is blocked → use ANTHROPIC_API_KEY.
+- jcode is configured, never forked. Bedrock **LLM-invoke** is blocked → the runtime LLM is **OpenRouter**
+  (D2 shipped, M2 #46; `OPENROUTER_API_KEY`), or a direct `ANTHROPIC_API_KEY` if supplied. (NB: Bedrock
+  **Titan embeddings** are NOT blocked — live in-VPC via PrivateLink; see `docs/decisions/embedder-as-built.md`.)
 - Internal tenant only; no client data until T7 (red-team isolation) passes.
 
 WORKFLOW:
@@ -40,8 +42,9 @@ Three corrections to the plan's stated invariants, confirmed against the actual 
    until T8 ships (`enable_get_closet=False` by default).
 
 Other confirmed facts: `runtime/memory.py` gates on `CONVEX_DEPLOYMENT_URL or CONVEX_SITE_URL` (the
-`.convex.site` HTTP-actions endpoint — NOT `.convex.cloud`); Bedrock blocked account-wide → direct
-`ANTHROPIC_API_KEY`. jcode = `1jehuang/jcode`@`master` (reference/runtime — configured, never forked);
+`.convex.site` HTTP-actions endpoint — NOT `.convex.cloud`); Bedrock **LLM-invoke** blocked → runtime LLM =
+**OpenRouter** (D2/M2) or a supplied `ANTHROPIC_API_KEY` (Titan **embeddings** work in-VPC — not blocked).
+jcode = `1jehuang/jcode`@`master` (reference/runtime — configured, never forked);
 the full git clone is flaky on this link — read files via `https://raw.githubusercontent.com/1jehuang/jcode/master/<path>`.
 
 ## JCODE INTERFACE (traced 2026-06-18 from jcode@master — config_render built to THIS, not the plan's examples)

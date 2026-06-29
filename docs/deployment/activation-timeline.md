@@ -4,10 +4,16 @@ The word "live" hides three milestones of wildly different size. Collapsing them
 hides, so they're split. Dates are **relative to T0** (your go-gates) with an **illustrative anchor**;
 move T0 and everything shifts. The long pole (fidelity) is **calendar, not code** — it cannot be sprinted.
 
-> **Current state (2026-06-28) — further than the three-bucket framing assumed.** The AWS apply is
-> *already crossed*: the dogfood spine is LIVE (deployed-stack smoke 7/7) and the **embedder is proven**
-> (Bedrock Titan via PrivateLink, ranked retrieval). So M1 is not "days bottlenecked on the apply" — the
-> apply is done; what remains is merge + model-key + governance. We're at the front of M1, not before it.
+> **Current state (2026-06-29) — further still than the 06-28 note.** The AWS apply is *already crossed*:
+> the dogfood spine is LIVE (deployed-stack smoke 7/7) and the **embedder is proven** (Bedrock **Titan
+> @1024** via PrivateLink, ranked retrieval — the done-bar is *ranked hits*, not "calls succeed"; PRs
+> #41+#25 **merged**; Gemini-768 parked + NAT-gated — `docs/decisions/embedder-as-built.md`). **D2 resolved
+> + shipped:** runtime LLM = **OpenRouter primary** (M2 #46 merged; classifier `anthropic/claude-haiku-4.5`;
+> `docs/decisions/ADR-llm.md`). The **jcode adapter's entire OFFLINE surface is built + green** — T1 shim ·
+> T2 config/isolation-policy · T3 supervisor-core · T4 audit/events · **T5 safety gate · T6 promoter** (#48
+> merged). The ONLY adapter code left is the **Docker box-exec** (`isolation._docker_run` +
+> `supervisor._spawn` + the egress firewall) — which the T0 spike proves. We're at the **front of M1b**,
+> gated solely on the jcode T0 go/no-go. Day-90 map: `docs/deployment/path-to-day-90.md`.
 
 Legend: `[A]` agent-buildable · `[U]` your gate (decision/credential/calendar) · ⚠ untraced (may hide a step).
 
@@ -21,8 +27,8 @@ Spine applied (VPC + Convex SoT + runtime + bridge), smoke **7/7**, embedder **l
 The substrate is done; **a NEop actually executing** is a gated milestone, not config. Two sub-parts:
 
 ### M1a — backend SPINE live + proven ✅ DONE
-Merge #41 + #25 (`[U]` 2 min) · rotate creds (`[U]` 2 min, parked-not-closed). Memory/ACL/audit/**embedder**
-all live + proven on AWS. This is what "the backend is live" actually means today.
+✅ #41 + #25 (embedder) **merged 2026-06-29**; rotate creds (`[U]`, parked-not-closed). Memory/ACL/audit/
+**embedder** all live + proven on AWS. This is what "the backend is live" actually means today.
 
 ### M1b — a NEop runs plan→execute→verify with a real model  ·  **GATED (not `[A]` config)**
 The load-bearing child — the model — has no quick wiring, traced 2026-06-28:
@@ -30,16 +36,18 @@ The load-bearing child — the model — has no quick wiring, traced 2026-06-28:
   **no injection seam**. core.py is the **frozen deterministic reference** — a live model path there is the
   forbidden 2nd change (byte-identical except the one sanctioned AwaitingApproval edit). The OpenRouter key
   being on hand is necessary-not-sufficient: there is **no sanctioned place in the dispatch loop to call it**.
-- The **intended** live runtime is the **jcode adapter** (`neop_jcode_adapter/`, merged PR #4). Built:
-  shim (T1) · config_render (T2) · audit/event taps (T4) · seat/safety presets. **STILL STUBS: `isolation.py`
-  (the Docker jail — the actual egress/security boundary) + `supervisor.py` (T3) + memory_promoter (T6).**
-  Its plan makes **T0 a go/no-go STOP-and-show gate**; CLAUDE.md: **"STOP and ask before T9 (first real NEop)
-  and before client data."** Needs a runnable jcode binary + the jail + a model key.
+- The **intended** live runtime is the **jcode adapter** (`neop_jcode_adapter/`). **OFFLINE-COMPLETE
+  (2026-06-29):** shim (T1) · config_render + isolation-policy (T2) · supervisor-core (T3) · audit/event
+  taps (T4) · **safety/pre_tool gate (T5)** · **memory_promoter (T6)** · seat/safety presets — all built +
+  green (#4, #43, #48 merged). The ONLY code left is the **Docker box-exec** (`isolation._docker_run` +
+  `supervisor._spawn` + the egress firewall) — needs the box. Its plan makes **T0 a go/no-go STOP-and-show
+  gate**; CLAUDE.md: **"STOP and ask before T9 (first real NEop) and before client data."** Needs a runnable
+  jcode binary + the jail + a model key (OpenRouter on hand, jcode-configurable).
 
 | Step | Owner | Notes |
 |---|---|---|
 | **jcode T0 spike** (one jailed jcode proc → shim → live palace round-trip) | `[U]` go/no-go | newly feasible: palace ✅ **live on AWS**, Docker ✅ via CodeBuild/ECS. Needs a runnable jcode binary + the Docker jail + a model key (OpenRouter on hand — jcode-configurable; Anthropic not on hand). **STOP-and-show after T0.** |
-| jcode adapter T1–T6 (shim/config_render/audit/jail/promoter) | `[A]` | T1 built (branch); the rest in order, **stop at T7** (the gate you run) |
+| jcode adapter T1–T6 (shim/config/audit/safety/promoter) | ✅ `[A]` done | all offline components built + green (#4/#43/#48); only the Docker box-exec remains, **stop at T7** (the gate you run) |
 | Governance flip (Policy v1) | `[A]`+`[U]` ~1 d | gates dispatch once it's live; seam proven |
 | **M1b = a NEop runs end-to-end on AWS, gated** | `[U]` T9 | first real NEop = explicit STOP-and-ask |
 
