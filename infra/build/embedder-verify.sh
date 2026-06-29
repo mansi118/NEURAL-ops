@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Live embedder proof — set GEMINI_API_KEY in the Convex env, deploy the Gemini-embedder functions, and
-# prove ranked semantic retrieval, all on a VPC-attached CodeBuild (Convex is internal). Run after the
-# spine is up + the gemini-embedder branch is the local Mempalace state. Usage: ./embedder-verify.sh
+# Live embedder proof (Titan) — prove RANKED semantic retrieval against the deployed stack on a VPC-attached
+# CodeBuild (Convex is internal). The ACTIVE embedder is Bedrock Titan v2 @1024 (convex/lib/embedder.ts →
+# qwen.js); this passes AWS_BEARER_TOKEN_BEDROCK (the Titan credential, below) and bundles the local
+# Mempalace state with the Bedrock provider active — so it is a repeatable in-prod TITAN ranked check, NOT
+# Gemini (that path is parked, NAT-gated). Run after the spine is up. Usage: ./embedder-verify.sh
 set -euo pipefail
 REGION="${REGION:-ap-south-1}"; ENVIRONMENT="${ENVIRONMENT:-dogfood}"; PROJECT="${PROJECT:-neos}"
 NAME="${PROJECT}-${ENVIRONMENT}"; CLIENT="${SMOKE_CLIENT:-neuraledge}"

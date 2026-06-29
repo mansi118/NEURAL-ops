@@ -59,9 +59,10 @@ def main():
     health = json.loads(h.stdout) if h.returncode == 0 and h.stdout.strip() else {}
     print(f"  embeddingHealth: configured={health.get('configured')} degraded={health.get('degraded')} counts={health.get('counts')}")
     if health.get("configured") is not True:
-        sys.exit("FAIL embedder not configured in the Convex env (set GEMINI_API_KEY via `convex env set`)")
+        sys.exit("FAIL embedder not configured in the Convex env. The ACTIVE provider is Bedrock Titan v2 "
+                 "(set AWS_BEARER_TOKEN_BEDROCK via `convex env set`); the parked Gemini path uses GEMINI_API_KEY.")
 
-    # 2. seed distinct docs (each embeds inline through ingestExchange → Gemini)
+    # 2. seed distinct docs (each embeds inline through ingestExchange → the configured embedder, Titan active)
     for tag, content in DOCS:
         w = broker.write(pid, SEAT, {"content": content, "title": f"proof-{tag}"})
         print(f"  write {tag}: status={w.get('status')}")
