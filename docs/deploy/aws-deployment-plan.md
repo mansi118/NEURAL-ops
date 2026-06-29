@@ -39,8 +39,9 @@ already live-proven on the self-host Convex backend; AWS is the same code on man
 - [ ] **[U] Convex decision:** **Convex Cloud** (recommended for prod — managed durability + backups; `npx
       convex deploy` with `CONVEX_DEPLOY_KEY` → a `.convex.site` URL) **or** self-host the
       `convex-local-backend` on ECS+EFS. The functions are identical to what's live-proven on self-host.
-- [ ] **[U] Embedder decision:** unblock **Bedrock Titan v2** (account-level click; `AWS_BEARER_TOKEN_BEDROCK`)
-      **or** stand up self-hosted **bge/e5-large**. Retrieval is dark until this is chosen.
+- [x] **Embedder decision — RESOLVED 2026-06-28:** **Bedrock Titan v2** LIVE in-VPC via PrivateLink
+      (`AWS_BEARER_TOKEN_BEDROCK`); no "unblock" was needed (the block was stale — Bedrock works in-VPC,
+      only Anthropic-on-Bedrock is gated). Ranked retrieval proven (0.986). See `embedder-as-built.md`.
 - [ ] **[U] Merge S0.1 PR #6** (runtime `Dockerfile` / `docker-compose` / `entrypoint` / boot self-check) —
       your docker review. This is the image Terraform's `runtime_image` expects.
 

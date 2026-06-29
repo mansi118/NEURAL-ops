@@ -6,10 +6,16 @@ You are implementing the NEop⟷jcode harness adapter. Read
 INVARIANTS (do not violate — see plan §1):
 - Memory = CORTEX-PALACE ops only (palace_search / palace_remember / [palace_get_closet after T8]).
 - Scope is (palaceId, neopId); NEVER accept scope from the model. The shim bakes + signs it.
-- ACL is fail-open until S0.3 → the container jail carries isolation. Do not weaken the jail.
-- jcode is configured, never forked. Bedrock **LLM-invoke** is blocked → the runtime LLM is **OpenRouter**
-  (D2 shipped, M2 #46; `OPENROUTER_API_KEY`), or a direct `ANTHROPIC_API_KEY` if supplied. (NB: Bedrock
-  **Titan embeddings** are NOT blocked — live in-VPC via PrivateLink; see `docs/decisions/embedder-as-built.md`.)
+- ACL is **fail-CLOSED on the deployed spine** (S0.3 live — verified at T0 2026-06-29: an unseeded seat is
+  DENIED at `enforce.ts:80`, not fail-open as the plan assumed). The container jail is **defense-in-depth,
+  proven at live T7** (egress confined to the palace; metadata + internet blocked; rootfs RO; caps dropped).
+  Do not weaken either.
+- jcode is configured, never forked. The runtime NEop LLM is **OpenRouter** (D2 shipped, M2 #46;
+  `OPENROUTER_API_KEY`) **by decision** — NOT because Bedrock is blocked. **Bedrock works in-VPC** (verified
+  at T0): generative invoke via **Nova** (`apac.amazon.nova-lite-v1:0`, bearer-token bedrock-runtime
+  endpoint — now serves **ingestion extraction**) AND **Titan embeddings** (live, ranked retrieval 0.986).
+  The ONLY genuine Bedrock block is **Anthropic models** (use-case form not submitted) — model-specific,
+  NOT account-wide. See `docs/decisions/embedder-as-built.md` + `docs/decisions/ADR-llm.md`.
 - Internal tenant only; no client data until T7 (red-team isolation) passes.
 
 WORKFLOW:
@@ -42,8 +48,10 @@ Three corrections to the plan's stated invariants, confirmed against the actual 
    until T8 ships (`enable_get_closet=False` by default).
 
 Other confirmed facts: `runtime/memory.py` gates on `CONVEX_DEPLOYMENT_URL or CONVEX_SITE_URL` (the
-`.convex.site` HTTP-actions endpoint — NOT `.convex.cloud`); Bedrock **LLM-invoke** blocked → runtime LLM =
-**OpenRouter** (D2/M2) or a supplied `ANTHROPIC_API_KEY` (Titan **embeddings** work in-VPC — not blocked).
+`.convex.site` HTTP-actions endpoint — NOT `.convex.cloud`); runtime LLM = **OpenRouter** (D2/M2) by
+decision. **Bedrock works in-VPC** (T0-verified): Nova generative (ingestion extraction) + Titan embeddings
+(retrieval 0.986); only **Anthropic-on-Bedrock** is gated (use-case form). "Bedrock blocked account-wide"
+is FALSE — do not re-derive it.
 jcode = `1jehuang/jcode`@`master` (reference/runtime — configured, never forked);
 the full git clone is flaky on this link — read files via `https://raw.githubusercontent.com/1jehuang/jcode/master/<path>`.
 

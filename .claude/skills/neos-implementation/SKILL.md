@@ -106,9 +106,13 @@ them for a narrow question — pick the one(s) that fit. (Sub-files pending — 
 | Current build state: repos, commits, what's green, the live AWS spine (smoke 7/7), the jcode adapter (offline-complete; box-gated T0/T7), **LLM = OpenRouter primary (D2 shipped, classifier `anthropic/claude-haiku-4.5`)**, **embedder = Bedrock Titan @1024 live via PrivateLink (Gemini-768 parked)**, security action items | `references/build-state.md` |
 
 > **AS-BUILT reconciliation (2026-06-29):** ground-truth that supersedes older "Bedrock blocked / Gemini-768"
-> framing — D2 = OpenRouter (`docs/decisions/ADR-llm.md`); embedder = Titan @1024 (`docs/decisions/embedder-as-built.md`);
-> spine LIVE on AWS; path to Day-90 = `docs/deployment/path-to-day-90.md`. (NB: `references/build-state.md`
-> is not checked into this repo — maintain it against these records.)
+> framing — D2 = OpenRouter **by decision** (`docs/decisions/ADR-llm.md`); embedder = Titan @1024
+> (`docs/decisions/embedder-as-built.md`). **"Bedrock blocked" is FALSE** (T0-verified): Bedrock generative
+> works in-VPC — Nova (`apac.amazon.nova-lite-v1:0`) serves ingestion extraction, Titan embeddings live; the
+> ONLY block is Anthropic-on-Bedrock (use-case form). OpenRouter is the runtime LLM by key-availability, not
+> a Bedrock constraint. **The ACL is fail-CLOSED on the deployed spine** (S0.3 live, T0-verified). Spine LIVE
+> on AWS; path to Day-90 = `docs/deployment/path-to-day-90.md`. (NB: `references/build-state.md` is not
+> checked into this repo — maintain it against these records.)
 
 ---
 

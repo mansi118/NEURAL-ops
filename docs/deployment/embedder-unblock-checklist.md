@@ -22,8 +22,10 @@ first impression you'd have to walk back. Unblock the embedder, confirm real hit
    says the credential "must live in the **CONVEX** environment"). ⇒ The `EMBEDDER_API_KEY` placeholder I set on
    the **runtime** ECS task does **nothing** for retrieval. Setting it there and expecting hits is the trap.
 2. **The active embedder is Bedrock Titan v2** (`convex/lib/qwen.ts`: `EMBEDDER_PROVIDER="bedrock-titan-v2"`,
-   model `amazon.titan-embed-text-v2:0`, reads `process.env.AWS_BEARER_TOKEN_BEDROCK`). **Bedrock is blocked
-   account-wide** (CLAUDE.md) — and the spine ran `enable_bedrock=false`. So the wired path is **dead as-is**.
+   model `amazon.titan-embed-text-v2:0`, reads `process.env.AWS_BEARER_TOKEN_BEDROCK`). ⚠️ **This "Bedrock
+   blocked account-wide" claim is STALE — it was disproved on 2026-06-28 (Titan) and again at T0 2026-06-29
+   (Nova generative).** Bedrock works in-VPC; the ONLY block is Anthropic-on-Bedrock. The wired Titan path is
+   LIVE (see the RESOLVED banner above), not dead.
 3. **No Gemini *embeddings* lib exists yet** — only a Gemini *LLM* lib (`convex/lib/geminiLlm.ts`, reads
    `GEMINI_API_KEY`). Prior embedders tried + abandoned (per `qwen.ts`): Qwen3 (HF credits depleted), Voyage
    (no key), Gemini (billing was off). The `.env` has `GEMINI_API_KEY` + `OPENROUTER_API_KEY` on hand.
@@ -32,7 +34,7 @@ first impression you'd have to walk back. Unblock the embedder, confirm real hit
 - **Recommended: Gemini embeddings** — key already on hand. Model `gemini-embedding-001` (or `text-embedding-004`),
   endpoint `…/v1beta/models/<model>:embedContent?key=$GEMINI_API_KEY`. Needs a small lib (mirror `geminiLlm.ts`).
 - Voyage — the skill's stated "live target," but **no Voyage key on hand** (would need provisioning).
-- Bedrock Titan — already wired, but **blocked**; only if Bedrock access is opened on the account.
+- Bedrock Titan — already wired and **LIVE** (the chosen path; "blocked" was disproved — see RESOLVED banner).
 
 ## Steps (push-button once the provider is chosen)
 - [ ] **1. Implement the provider** (if Gemini): add `convex/lib/geminiEmbed.ts` exporting `embedOne`,

@@ -28,10 +28,10 @@ These are facts about the live stack. Do not invent architecture around them; a 
 
 1. **Memory is CORTEX-PALACE only.** Reached by HTTP POST to `/mcp` with `palace_search` + `palace_remember`, scoped by `palaceId` (tenant) + `neopId` (seat). Embeddings are server-side. Never stand up a new store.
 2. **`palace_get_closet` (by-id fetch) does not exist yet** in `Mempalace_NEOS` — it has search + write only. Twin-style by-id retrieval is blocked until T8 ships it. Respect the twin **by-id-only** invariant.
-3. **The 4-layer ACL is currently fail-open.** The fail-open→fail-closed SoT flip is deferred to **S0.3**. Until then, **the OS/container jail carries the isolation guarantee, not the ACL.** Design accordingly — do not rely on ACL fail-closed behavior that isn't live.
+3. **The 4-layer ACL is fail-CLOSED on the deployed spine** (S0.3 is LIVE — verified at T0 2026-06-29: an unseeded seat is DENIED at `convex/access/enforce.ts:80`). The OS/container jail is **defense-in-depth** (proven at live T7 2026-06-29), no longer the *sole* isolation guarantee. Still: keep the jail strong and never weaken it.
    - Layers: (1) Convex SoT, (2) FalkorDB bridge w/ Ed25519-signed headers, (3) MCP tool wrapper, (4) Python SDK call-site.
 4. **jcode is Rust; the spine is Python.** The adapter is a Python supervisor that *manages* jcode processes — it does not link into jcode. jcode is driven via its CLI/server, config files, and MCP config.
-5. **Bedrock is blocked account-wide** on the mansi-synlex account (400 ValidationException, not permissions). jcode uses a direct **`ANTHROPIC_API_KEY`**, which bypasses Bedrock entirely. Inject per seat.
+5. **Bedrock is NOT blocked account-wide** (CORRECTED 2026-06-29 / T0). Generative invoke works in-VPC — **Nova** (`apac.amazon.nova-lite-v1:0`) serves ingestion extraction, and Titan embeddings are live; both via the bearer-token bedrock-runtime endpoint. The **only** Bedrock block is **Anthropic models** (use-case form). The runtime NEop LLM = **OpenRouter by D2 decision**; jcode can also take a direct **`ANTHROPIC_API_KEY`**. Inject the chosen key per seat. Do not re-derive "Bedrock blocked."
 6. **`runtime/memory.py` stays embedding-agnostic** and gates only on `CONVEX_DEPLOYMENT_URL`. Don't couple the adapter to a specific embedder.
 
 ---
@@ -69,7 +69,7 @@ Only build T8 if a Class A/B pilot needs twin-style by-id fetch. Otherwise defer
 Signatures are the contract; implementation choices (async runtime, container lib) are yours.
 
 ### 3.1 `palace_mcp_shim` — the tenant chokepoint (most security-critical)
-A small **stdio MCP server** that jcode launches via its command-based `mcp.json`. It forwards the allowlisted palace tools to the HTTP `/mcp` endpoint, **with `palaceId`/`neopId` baked in from env (never accepted from the model)** and **Ed25519-signed headers**. Because the scope is fixed per process and signed here, a seat's jcode process cannot escape its tenant even with the ACL fail-open.
+A small **stdio MCP server** that jcode launches via its command-based `mcp.json`. It forwards the allowlisted palace tools to the HTTP `/mcp` endpoint, **with `palaceId`/`neopId` baked in from env (never accepted from the model)** and **Ed25519-signed headers**. Because the scope is fixed per process and signed here, a seat's jcode process cannot escape its tenant even if the ACL were fail-open (it is now fail-closed on the deployed spine — defense-in-depth).
 
 ```python
 ALLOWED_TOOLS = {"palace_search", "palace_remember", "palace_get_closet"}  # get_closet gated on T8
@@ -127,7 +127,7 @@ Per-seat `.jcode/mcp.json` (points only at the shim — jcode never sees the raw
 ```
 
 ### 3.3 `IsolationUnit`
-One container per `(palaceId, neopId)`. v1: Docker (plain on EC2; inside Colima on the Mac mini). Per seat: isolated `JCODE_HOME`, a jailed working dir, **no host filesystem access**, and **egress restricted to the palace endpoint + the Anthropic API only**. The container boundary is the tenant boundary while ACL is fail-open.
+One container per `(palaceId, neopId)`. v1: Docker (plain on EC2; inside Colima on the Mac mini). Per seat: isolated `JCODE_HOME`, a jailed working dir, **no host filesystem access**, and **egress restricted to the palace endpoint + the Anthropic API only**. The container boundary is defense-in-depth around the (now fail-closed) ACL — proven confining at live T7.
 
 ```python
 class IsolationUnit:
