@@ -43,6 +43,29 @@ aws ecs update-service --cluster neos-dogfood-cluster --service neos-dogfood-run
 curl http://$(terraform output -raw alb_dns_name)/health
 ```
 
+## Scope phases (`-var-file=phaseN.tfvars`) — M3·T3.2
+The stack scopes up a reproducible ladder (config, not `-target`). Each phase is a superset of the prior;
+apply in order. NB: this is the SCOPE ladder — distinct from the deploy *sequence* (Phase 1–7) in
+`docs/deployment/dogfood-spine-runbook.md`.
+
+| File | Scope | Toggles on (vs foundation) |
+|------|-------|----------------------------|
+| `phase1.tfvars` | **Foundation** — VPC(+endpoints) · Convex SoT · runtime worker · bridge | *all tiers off* (the cheapest standable substrate; ~60 resources) |
+| `phase2.tfvars` | **Substrate** — + comms/audit tier + live embedder | `enable_comms_tier`, `enable_bedrock` (~90 resources) |
+| `phase3.tfvars` | **Enforcement** — + L2 tenant-scope governance flip | `enable_bridge_identity` (gated on `approval-policy-v1.md`) |
+
+```bash
+terraform plan  -var-file=phase1.tfvars -out tf.plan   # ⛔ G-c — review, then apply
+terraform apply tf.plan
+```
+Fill `runtime_image`/`bridge_image` with the **immutable ECR digests** the image pipeline pushes (below).
+
+## Durable image pipeline (M3·T3.1) — OIDC, no stored keys
+`gha-oidc.tf` provisions a GitHub OIDC provider + `gha-ecr-push` role (trust scoped to the repo; ECR push
+scoped to `neos-dogfood-*`). `.github/workflows/build-push-ecr.yml` exchanges the GHA OIDC token for that
+role and builds+pushes the runtime image (`linux/amd64`, tagged by commit SHA; repo is IMMUTABLE → pin the
+digest it prints). Activation = `terraform apply` the IAM (cheap, no ongoing cost), then `workflow_dispatch`.
+
 ## Before prod (additional gates)
 - TLS: ACM cert + a 443 listener + HTTP→HTTPS redirect (needs a domain).
 - KMS CMK for Secrets Manager + log encryption.
