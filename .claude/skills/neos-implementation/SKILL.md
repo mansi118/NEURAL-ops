@@ -113,6 +113,17 @@ them for a narrow question — pick the one(s) that fit. (Sub-files pending — 
 > a Bedrock constraint. **The ACL is fail-CLOSED on the deployed spine** (S0.3 live, T0-verified). Spine LIVE
 > on AWS; path to Day-90 = `docs/deployment/path-to-day-90.md`. (NB: `references/build-state.md` is not
 > checked into this repo — maintain it against these records.)
+>
+> **Runtime reconciliation (2026-06-30, `docs/decisions/ADR-neop-runtime.md` DECIDED):** the NEop runtime is
+> **Hermes** (canon stands; `pi-neop-runtime` on `@earendil-works/pi-agent-core` runs a real pi-agent loop —
+> verified). **jcode is NOT a NEop runtime** — it's scoped to gated NE-QuickBuild build-assist (a prior
+> conversational resolution that was never written down; now written). Conformance caveat: `runtime/core.py`
+> asserts *"Production Hermes implements the same contract,"* but the trace found the canonical Hermes runtime
+> does **NOT** yet implement the **`/mcp` spine contract** (live PALACE memory unwired — `pi-neop-runtime`
+> `src/brokers/memory.ts:23`). So Python-reference and Hermes are **contract-equivalent by design, `/mcp`
+> conformance RED as of 2026-06-30** — tracked as ADR **GAP-1**. T0's live GO was on the **jcode `/mcp`
+> path**; it does **not** transfer to Hermes until GAP-1 (port `/mcp`) + GAP-2 (Hermes egress-jail proof)
+> are green. M1b/T9 is gated on both.
 
 ---
 

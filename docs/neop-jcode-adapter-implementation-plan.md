@@ -1,5 +1,14 @@
 # NEop ⟷ jcode Harness — Implementation Plan
 
+> ⛔ **SUPERSEDED (NEop-runtime framing) — `superseded-by: docs/decisions/ADR-neop-runtime.md` (DECIDED
+> 2026-06-30).** This plan's premise that **jcode runs a NEop's inner agent loop** (§0 line 17, §262) is
+> overturned: the NEop runtime is **Hermes** (canon; verified live — `pi-neop-runtime` runs a real pi-agent
+> loop). jcode is **NOT** a NEop runtime; it is scoped to the gated **NE-QuickBuild build-assist** role.
+> **What survives:** every "spine" piece in this plan — the scope-baked/signed `palace_mcp_shim`, the
+> container egress jail (T7), ACL inheritance, audit/events, palace-backed memory — is runtime-agnostic and
+> remains valid; read it as "the QuickBuild build-assist seat," not "the NEop you run." (Notably, the
+> `/mcp` shim this plan built is the very contract Hermes must now port — see ADR GAP-1.)
+
 > **Status:** Build-ready handoff · **Owner:** ML · **Confidentiality:** CONFIDENTIAL — INTERNAL (NeuralEDGE)
 > **Repos touched:** `NEURAL-ops` (primary, Python) · `Mempalace_NEOS` (one optional Convex/TS task)
 > **Target runtime:** AWS `ap-south-1` (t4g/Graviton, aarch64) + Mac mini (Colima)
