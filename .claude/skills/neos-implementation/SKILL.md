@@ -124,6 +124,16 @@ them for a narrow question — pick the one(s) that fit. (Sub-files pending — 
 > conformance RED as of 2026-06-30** — tracked as ADR **GAP-1**. T0's live GO was on the **jcode `/mcp`
 > path**; it does **not** transfer to Hermes until GAP-1 (port `/mcp`) + GAP-2 (Hermes egress-jail proof)
 > are green. M1b/T9 is gated on both.
+>
+> **Sharpening (do not re-derive "the runtimes are equivalent"):** the **jcode adapter shim is the SOLE
+> `/mcp`-proven path** — the Python `runtime/core.py` is cassette-only too (its `ModelBroker` raises on live
+> tools), so **neither** the Python core **nor** the Node Hermes inherits T0's live memory proof yet. GAP
+> progress (code done, live proofs box-gated, NOT merged): GAP-1 = `pi-neop-runtime#1` (TS port of
+> `palace_mcp_shim`, offline 26/26 + CI green; trigger = `tools/gap1_live_proof.ts` exits 0 on Hermes).
+> GAP-2 = `pi-neop-runtime#2` (hardened non-root Node image; the egress jail is reused unchanged from
+> `neop_jcode_adapter/isolation.py` — runtime-agnostic, proven offline by `test_isolation.py`; trigger =
+> `tools/gap2_jail_proof.py` exits 0 against the Hermes image). "Done" = the live proof runs green, never
+> the code compiling.
 
 ---
 
