@@ -17,6 +17,18 @@
 > production-ready** — the Day-90 gate stands. Deferred by design: comms/audit tier (`enable_comms_tier=false`),
 > embedder + model key, TLS (HTTP-only in-VPC), governance flip. Runbook: `docs/deployment/dogfood-spine-runbook.md`.
 > Account constraint met honestly: EIP quota was full, so the spine uses **VPC endpoints, no NAT** (`enable_nat_gateway=false`).
+>
+> **2026-06-30 — RUNTIME DECIDED + M1b RE-FRAMED (`docs/decisions/ADR-neop-runtime.md`).** The NEop runtime
+> is **Hermes** (`pi-neop-runtime`, real pi-agent loop); **jcode is NOT a NEop runtime** (scoped to gated
+> NE-QuickBuild build-assist). jcode T0 strong-GO + T7 strong-pass ran live 2026-06-29 but on the now-demoted
+> path, so they do **not** satisfy M1b. M1b's binding gate moved to the Hermes path: **GAP-1** (port the
+> proven `/mcp` shim into Hermes memory — `pi-neop-runtime#1`), **GAP-2** (hardened non-root Hermes image in
+> the runtime-agnostic egress jail — `pi-neop-runtime#2` + `NEURAL-ops#60`, proven adversarially on box), and
+> the **search floor fix** (hybrid lexical+vector + adaptive floor — `Mempalace#29`). All three are
+> **code-complete + CI-green, do-not-merge until their live proofs**; one authorized box-session (deploy #29 +
+> re-run both proofs) unlocks M1b. **The Day-90 gate is unchanged and still not agent-declarable.** For the
+> live Track A, read `docs/deployment/path-to-day-90.md` (authoritative); the jcode-framed M1b bits of this
+> ledger are superseded.
 
 ## Verification evidence (2026-06-22, against the self-hosted convex-local-backend)
 - NEURAL-ops python sweep **20/20**; Mempalace vitest **95 pass | 1 skip** at every merge; L2 `bridge_identity` **5/5**.

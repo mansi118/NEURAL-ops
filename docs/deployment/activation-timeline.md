@@ -1,5 +1,14 @@
 # Activation Timeline — three "live"s, dated
 
+> ⛔ **SUPERSEDED on the runtime + M1b framing — see `docs/deployment/path-to-day-90.md` (authoritative)
+> + `docs/decisions/ADR-neop-runtime.md` (2026-06-30).** This doc frames the live runtime + M1b around the
+> **jcode adapter** (T0→T6→T9). That was overturned: the NEop runtime is **Hermes** (`pi-neop-runtime`);
+> **jcode is NOT a NEop runtime** (scoped to gated NE-QuickBuild build-assist). jcode T0/T7 passed live but
+> on the now-demoted path, so they don't satisfy M1b. M1b is now the Hermes path (GAP-1 `/mcp` memory + GAP-2
+> jail + the search floor fix — all built, one box-session from proof). The three-milestone *shape* and the
+> fidelity-calendar long pole below remain correct; the jcode-specific runtime/T0 dates do not — read
+> `path-to-day-90.md` for the live Track A.
+
 The word "live" hides three milestones of wildly different size. Collapsing them is where false optimism
 hides, so they're split. Dates are **relative to T0** (your go-gates) with an **illustrative anchor**;
 move T0 and everything shifts. The long pole (fidelity) is **calendar, not code** — it cannot be sprinted.
