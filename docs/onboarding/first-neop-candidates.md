@@ -44,6 +44,12 @@ For each of the 5 seats, fill this from the interview (or from knowing the perso
 A row is only "Confirmed" when the seat-holder says it's daily *and* resented. Unconfirmed rows are guesses
 — don't build against them.
 
+> **Trap: people report the wrong task.** They name the most *annoying* thing (rare, painful) over the most
+> *frequent low-grade* thing (habitual, under-reported because it no longer registers as work) — but the
+> frequent-low-grade one is the better NEop target. Don't just ask "what do you hate"; ask **"what did you
+> spend the first hour on today?"** The ranking here is only as good as the pain data you feed it, and the
+> highest-value pain is the kind people forget to mention. (See `seat-onboarding-script.md` §2.)
+
 ## Bars to hold (same discipline as the rest of the stack)
 - **Each spec is a candidate until a real person confirms the pain is daily + real** — the spec's done-bar is
   "validated against the seat-holder's actual workflow," not "looks useful on paper."
