@@ -30,6 +30,13 @@ measuring fidelity from Day 0. It also surfaces the **first useful NEop** for th
 - Of those recurring things, which do you **resent** — the ones you wish you didn't have to do?
 - For the worst one: how long does it take, how many times a day/week, and what makes it annoying?
 
+> **Trap — people report the wrong task.** Asked "what do you hate," people name the *most annoying* thing
+> (a monthly report, a painful quarterly process) over the *most frequent low-grade* thing (40 min of inbox
+> triage they no longer register as work because it's so routine). The frequent-low-grade one is the better
+> NEop target **and** the worse interview answer — under-reported precisely because it's habitual. So **ask
+> twice / ask sideways:** *"What did you actually spend the first hour on today?"* surfaces the real target
+> better than "what do you hate?" The highest-value pain is the kind people forget to mention.
+
 *(Seeds: the **frequency × resentment** ranking that picks the first NEop. Daily-and-resented is the target,
 not impressive-but-rare. Write down the top 1–2 verbatim.)*
 
@@ -80,3 +87,9 @@ first-NEop candidate. If they diverge, the §5 answer wins — it's what the per
       learn that from yourself, before four colleagues drift away in week two.)*
 
 Until those boxes are checked by a real run, this is a candidate script, not the onboarding flow.
+
+> **Seat-#1 commitment + kill criterion (set this BEFORE go-live).** Going first only validates anything if
+> you let it fail. Decide now: *"I will use my first NEop every working day for a week; if I'm avoiding it by
+> day 3, the first NEop is wrong — we re-pick before any other seat onboards."* Without the kill criterion,
+> seat #1 becomes a courtesy demo you push through out of ownership and learn nothing. With it, you find out
+> whether the thing is genuinely useful from the one person whose drifting-away costs nothing — yourself.
