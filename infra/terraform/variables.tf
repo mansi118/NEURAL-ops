@@ -109,8 +109,8 @@ variable "managed_secret_keys" {
   # key lives in the Convex deployment env (`convex env set GEMINI_API_KEY`), never injected into the
   # runtime container. (Removed vestigial EMBEDDER_API_KEY — T1.5; nothing in the runtime read it.)
   default = [
-    "ANTHROPIC_API_KEY",   # kept as fallback (selfcheck fallback path); empty unless ML supplies one
-    "OPENROUTER_API_KEY",  # M2/D2: the live runtime LLM key (primary, CLASSIFIER_PROVIDER=openrouter)
+    "ANTHROPIC_API_KEY",  # kept as fallback (selfcheck fallback path); empty unless ML supplies one
+    "OPENROUTER_API_KEY", # M2/D2: the live runtime LLM key (primary, CLASSIFIER_PROVIDER=openrouter)
     "PALACE_BRIDGE_API_KEY",
     "CONVEX_SELF_HOSTED_ADMIN_KEY",
     "CONVEX_INSTANCE_SECRET",
@@ -150,6 +150,18 @@ variable "convex_task_memory" {
   description = "Fargate memory (MiB) for the Convex task."
   type        = number
   default     = 2048
+}
+
+variable "convex_search_checkpoint_age_s" {
+  description = <<-EOT
+    SEARCH_WORKERS_MAX_CHECKPOINT_AGE for the convex backend (seconds). The SearchIndexFlusher rebuilds a
+    vector/search index when it is older than this OR its increment exceeds the size soft-limit (10 MiB).
+    convex-backend default is 3600 (1h) — too slow for low-write palaces (fresh writes unsearchable up to
+    ~1h; box-rooted 2026-07-01). Lowered so quiet palaces flush within ~1 min. Trade-off: smaller values =
+    more frequent segment builds/compaction (negligible on this corpus). See docs/decisions + Mempalace#30.
+  EOT
+  type        = number
+  default     = 60
 }
 
 variable "health_check_path" {

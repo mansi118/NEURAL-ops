@@ -149,6 +149,15 @@ resource "aws_ecs_task_definition" "convex" {
         { name = "CONVEX_SITE_ORIGIN", value = "http://convex.${aws_service_discovery_private_dns_namespace.main.name}:3211" },
         { name = "DO_NOT_REQUIRE_SSL", value = "true" },
         { name = "DISABLE_BEACON", value = "true" },
+        # Search/vector index flush cadence (ADR-neop-runtime index-propagation fix, box-rooted 2026-07-01).
+        # The SearchIndexFlusher rebuilds an index when it is older than SEARCH_WORKERS_MAX_CHECKPOINT_AGE
+        # (convex-backend common::knobs default 3600s = 1h) OR its increment exceeds the size soft-limit
+        # (10 MiB). A LOW-write palace never hits the size trigger, so fresh writes stay unsearchable for up
+        # to ~1h — the write→recall "amnesia window" (rooted from the live flusher logs: rebuilds at age
+        # ~7641s/4913s). Lower the age trigger so quiet palaces flush within ~1 min. 60s trades a little more
+        # segment/compaction churn (tiny on this corpus) for near-fresh recall; the app-side recency fallback
+        # (Mempalace#30) remains defense-in-depth for the residual sub-cadence window.
+        { name = "SEARCH_WORKERS_MAX_CHECKPOINT_AGE", value = tostring(var.convex_search_checkpoint_age_s) },
       ]
 
       secrets = [
