@@ -102,3 +102,47 @@ def test_launch_reaches_box_gate_on_valid_input():
     with pytest.raises(NotImplementedError):
         IsolationUnit().launch(SEAT, "img", {"OPENROUTER_API_KEY": "x"}, "/w",
                                palace_mcp_url=URL, provider=OPENROUTER_PROVIDER)
+
+
+# ── GAP-2 (ADR-neop-runtime): the jail is RUNTIME-AGNOSTIC ─────────────────────
+# The Hermes/Pi Node runtime is NOT given a second, hand-written egress spec — it is fed to THIS jail
+# as a different `image`. These tests prove that reuse is real: swapping the image changes ONLY the
+# image field, never the lockdown or the egress boundary. If this ever diverges, the "expressed once,
+# consumed by both" guarantee is broken — the exact asserted-equivalence drift GAP-2 exists to close.
+JCODE_IMAGE = "neos-jcode:latest"
+HERMES_IMAGE = "ghcr.io/mansi118/pi-neop-runtime:hermes"
+
+
+def _spec_for(image, provider=ANTHROPIC_PROVIDER):
+    # Hermes resolves Anthropic (pi-neop-runtime model.ts), so the provider host is api.anthropic.com.
+    return build_jail_spec(SEAT, image, palace_mcp_url=URL,
+                           workdir_mount="/var/seats/palace1/aria",
+                           env_passthrough=["ANTHROPIC_API_KEY", "PALACE_SIGNING_KEY_REF"],
+                           provider=provider)
+
+
+def test_hermes_image_gets_identical_lockdown_and_egress():
+    jcode = _spec_for(JCODE_IMAGE)
+    hermes = _spec_for(HERMES_IMAGE)
+    # The ONLY difference between the two jails is the image name…
+    assert jcode.image == JCODE_IMAGE and hermes.image == HERMES_IMAGE
+    # …everything that constitutes the isolation boundary is byte-identical.
+    assert hermes.docker_args == jcode.docker_args            # same --read-only/--cap-drop/--no-new-privileges/…
+    assert hermes.egress_allowlist == jcode.egress_allowlist  # same {palace, provider} default-DROP boundary
+    assert hermes.network_name == jcode.network_name
+    assert hermes.env_passthrough == jcode.env_passthrough
+
+
+def test_hermes_jail_is_locked_and_egress_confined():
+    hermes = _spec_for(HERMES_IMAGE)
+    args = hermes.docker_args
+    for flag in ("--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges"):
+        assert flag in args, f"hermes jail missing lockdown flag {flag!r}"
+    # egress confined to ONLY the palace + the Anthropic host — nothing wider.
+    assert hermes.egress_allowlist == ("api.anthropic.com", "small-dogfish-433.convex.site")
+
+
+def test_hermes_jail_failcloses_on_blank_scope():
+    # same fail-closed contract regardless of image: a blank seat must refuse before any exec.
+    with pytest.raises(ValueError):
+        build_jail_spec(("", ""), HERMES_IMAGE, palace_mcp_url=URL, workdir_mount="/w", env_passthrough=[])
