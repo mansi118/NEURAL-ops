@@ -16,11 +16,13 @@
 - **3-vs-0 retrieval discrepancy** = floor-filtering + query-sensitivity (26 embedded closets exist; test
   queries scored below the 0.35 similarity floor). Not a fault.
 
-## 🧾 BANK (a narrow-green to understand later, do NOT chase now)
+## 🧾 BANK — write-persistence finding (RESOLVES INSIDE item 1, not a separate chase)
 `broker.write` to `aria` **reported success at the smoke layer** (7/7 counted it PASS on
 `status in ok/partial/quarantined/noop`) but **never persisted a retrievable closet**. Same *class* as
-graceful-empty retrieve — a green narrower than it looks. If real writes can silently quarantine, that's a
-**Bar-2 concern**. File it; understand the quarantine/no-op path eventually.
+graceful-empty retrieve — a green narrower than it looks; a Bar-2 blocker (a twin that can't durably write
+can't answer from memory). **KEY: this is NOT a separate item — it resolves for free inside the ranked
+rerun (item 1),** because the rerun's first action is a canary *write*. Sequence + read the rerun as
+**persistence THEN ranking**: does the canary land as a durable closet, *then* does it come back rank-1.
 
 ## 🔒 DELETE GATE (verbatim — must survive reset intact)
 No `retractCloset` runs until ALL: (a) DB closet count reconciles; (b) smoke write **positively identified by
@@ -63,6 +65,12 @@ resolved to: nothing to delete.)
    **throwaway obviously-synthetic permissioned seat** via `seed:access` — **this is an ACL mutation; name it,
    scope to one seat, ask ML first, clean up after.** Full GAP-1 bar (oblique query, rank-1, ABS_MIN from the
    oblique score, graceful-empty=FAIL). Now easier: 26 real embedded memories exist to test against.
+   **Read it as a TWO-PART check (this is the write-persistence finding resolving here):**
+   (i) **persistence** — does the canary write land as a durable, retrievable closet at all? (the aria smoke
+   write did NOT — check explicitly, don't assume the write worked); (ii) **ranking** — does it come back
+   rank-1 on the oblique query? Four-way read, one layer earlier: canary doesn't persist → the write-quarantine
+   finding is now the priority (like the embedder would've been); persists but mis-ranks on oblique → the #30
+   ranking gap; persists + ranks → both the banked finding and the ranked bar close in one run.
 2. **Matrix front door.** ML runs AS-registration from **#79** (read current `homeserver.yaml` → backup →
    **additive** edit → restart → rollback known first). Then the **cross-VPC `nc-channels` placement** design
    (on the `matrix-server` box [Synapse=localhost, palace needs peering] vs in the spine VPC [palace=internal,
