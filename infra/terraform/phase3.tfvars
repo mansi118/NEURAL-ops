@@ -20,7 +20,9 @@ enable_runtime_alb     = false # still worker-mode until transport; not coupled 
 enable_bedrock         = true
 enable_bridge_identity = true # L2 tenant-scope enforcement ON — the governance flip
 
-convex_image = "ghcr.io/get-convex/convex-backend:latest"
+# convex_image intentionally UNSET — pinned by the auto-loaded terraform.tfvars (see phase2.tfvars note):
+# a -var-file convex_image=ghcr:latest would replace the running Convex SoT with an image the no-NAT VPC
+# can't pull. Leave it to terraform.tfvars.
 
 # runtime_image = "071126865245.dkr.ecr.ap-south-1.amazonaws.com/neos-dogfood-runtime@sha256:..."
 # bridge_image  = "071126865245.dkr.ecr.ap-south-1.amazonaws.com/neos-dogfood-bridge@sha256:..."

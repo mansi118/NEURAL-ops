@@ -17,7 +17,10 @@ enable_runtime_alb     = false # runtime worker until transport lands; flip with
 enable_bedrock         = true  # embedder LIVE — Titan via the bedrock-runtime VPC endpoint (PrivateLink)
 enable_bridge_identity = false # governance enforcement still deferred to Phase 3
 
-convex_image = "ghcr.io/get-convex/convex-backend:latest"
+# convex_image intentionally UNSET here — the auto-loaded terraform.tfvars pins the deployed ECR digest
+# (like runtime_image/bridge_image below). Do NOT set it to ghcr.io/...:latest: a -var-file OUTRANKS
+# terraform.tfvars, so that line would replace the running Convex SoT with a floating public image the
+# no-NAT VPC (enable_nat_gateway=false) cannot pull → SoT down. Leave it to terraform.tfvars.
 
 # runtime_image = "071126865245.dkr.ecr.ap-south-1.amazonaws.com/neos-dogfood-runtime@sha256:..."
 # bridge_image  = "071126865245.dkr.ecr.ap-south-1.amazonaws.com/neos-dogfood-bridge@sha256:..."
