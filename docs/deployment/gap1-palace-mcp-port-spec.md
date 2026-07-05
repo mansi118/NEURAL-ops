@@ -88,27 +88,49 @@ Scope: the test seat `(palaceId = PID_TEST, neopId = seat_gap1)`.
    ```
    Assert: HTTP 200, `status == "ok"`, a closet id returned. (Write half of the seam.)
 
-2. **Retrieve** — `palace_search`, `params`: `{ "query": "what is the seat's project codename?", "limit": 5 }`
-   **PASS requires ALL of:**
+2. **Retrieve — TWO queries against the one seeded fact.** One near-hit, one oblique. A single query proves
+   the pipe is connected; two — near *and* oblique — prove it's the retrieval *quality* M1b needs, including
+   the case #30 actually broke on (fresh-write recall under semantic distance, low lexical overlap).
+   - **2a — near-hit** (high overlap): `{ "query": "what is the seat's project codename?", "limit": 5 }`
+   - **2b — oblique** (deliberately low lexical overlap — no "codename"/"project" doing the work):
+     `{ "query": "which region is the main initiative running in?", "limit": 5 }` — must surface BLUEFERN /
+     `ap-south-1` via the *association*, not shared terms. **This is the #30 case; 2a alone cannot prove it.**
+
+   **PASS requires, for BOTH 2a AND 2b:**
    - **Rank 1** result is the BLUEFERN closet from step 1 (id match).
-   - Its score is **above the adaptive retrieval floor** (#29 adaptive-floor; ranked-retrieval baseline 0.986
-     per `embedder-as-built.md`) — a real embedding hit, not a degenerate match.
+   - Its score is **above the adaptive retrieval floor** (#29) — proves "better than the noise."
+   - **AND its absolute similarity ≥ `ABS_MIN`** — a concrete bound proving "the embedding actually worked,"
+     independent of where the adaptive floor sits. **Pin `ABS_MIN` from the offline retrieval runs before
+     the box** (a near-exact semantic match should score *well clear* of the floor — expect Titan cosine to
+     land high; use the measured offline value, not a guess).
    - The result set is **non-empty**.
-   **FAIL (GAP-1 stays OPEN) on ANY of:**
-   - Empty result set — **`graceful-empty = FAIL`, held literally** (`embedder-as-built.md:18`). This is the
-     dead-embedder / #30 failure mode; it does not get a soft pass.
-   - Rank-1 is a different closet, or the BLUEFERN closet is absent from the top-`limit`.
-   - The score is at/below the floor (retrieval fired but didn't really match).
+
+   **Why BOTH the floor and the absolute bound (this is the July-1 hole):** the floor is *adaptive* — a
+   subtly broken port can drag the floor down to meet a degenerate score, and "score > floor" passes while
+   *both numbers collapsed together*. On July 1 the thing that lied was a **relationship between two numbers**
+   (a paraphrase sitting ~0.18 under a 0.2 boundary), not either number alone. The floor proves relative
+   separation; `ABS_MIN` proves absolute signal. Requiring both closes the collapsed-floor false-GREEN.
+
+   **FAIL (GAP-1 stays OPEN) on ANY of (for either query):**
+   - Empty result set — **`graceful-empty = FAIL`, held literally** (`embedder-as-built.md:18`). The
+     dead-embedder / #30 failure mode; no soft pass.
+   - Rank-1 is a different closet, or BLUEFERN is absent from the top-`limit`.
+   - Score at/below the adaptive floor **OR** below `ABS_MIN` (floor cleared but signal degenerate).
+   - **2b specifically fails but 2a passes** → the pipe is connected but retrieval quality is #30-broken:
+     GAP-1 stays open. The oblique query is the bar, not a bonus.
 
 3. **Scope-isolation assertion (proves the fail-closed port end-to-end).** From a *different* seat
    `(PID_TEST, seat_other)`, run the same `palace_search`. **PASS requires:** the BLUEFERN closet is **NOT**
    returned (scope-bake isolates seats). A cross-seat leak here = GAP-1 FAIL **and** a security finding — it
    means the baked `neopId` isn't actually scoping the read.
 
-### Done-definition (all three, on the record)
+### Done-definition (all on the record)
 - [ ] Write returns ok under baked scope (Part 1 envelope verified live).
-- [ ] Query returns BLUEFERN at rank 1 above the floor; **empty-or-wrong = open** (Part 3 bar).
+- [ ] **Near-hit (2a)** returns BLUEFERN at rank 1, above the floor **and** ≥ `ABS_MIN`.
+- [ ] **Oblique (2b)** returns BLUEFERN at rank 1, above the floor **and** ≥ `ABS_MIN` — the #30 case.
+- [ ] Any empty/wrong/floor-collapsed/`ABS_MIN`-miss on either query = **GAP-1 open** (no soft pass).
 - [ ] Cross-seat query does **not** return it (Part 2 fail-closed invariant proven live).
+- [ ] `ABS_MIN` pinned from the offline runs **before** the box (not discovered live).
 Only then is GAP-1 green and M1b's memory child (child-2) flips RED→GREEN on Hermes.
 
 ---
@@ -116,7 +138,9 @@ Only then is GAP-1 green and M1b's memory child (child-2) flips RED→GREEN on H
 ## Net
 Three parts: the **ported contract** (mechanical, exact from the shim), the **fail-closed invariant** (ported
 not reinvented — any error denies and raises, never empty, never unscoped), the **live acceptance proof**
-(seeded BLUEFERN fact, rank-1-above-floor, graceful-empty=FAIL, cross-seat isolation). Once
+(one seeded BLUEFERN fact; a near-hit **and** an oblique query, each rank-1 above the adaptive floor **and**
+an absolute `ABS_MIN`; graceful-empty=FAIL; cross-seat isolation). The two queries catch the #30
+semantic-distance miss; the floor+`ABS_MIN` pair catches the collapsed-floor false-GREEN. Once
 `pi-neop-runtime` is checked out, Part 1 is transcription; Part 2 is a review checklist; Part 3 is the box
 run that actually closes the gap. The box window becomes a checklist walk — not an exploration — on the seam
 that's on the real critical path. **Step zero remains: re-trace `memory.ts` before porting into it.**
