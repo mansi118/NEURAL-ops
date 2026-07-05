@@ -43,7 +43,22 @@ Execute the descriptor `reply_send` already built (`:113`): `PUT {send.path}` wi
 
 ### Open build-detail the box must NOT discover live (named here)
 - **`out_txn_id` generation** — fresh per send (uuid). Idempotency key; don't reuse the inbound `txnId`.
-- **Seat → `puppet_localpart` resolution** — which `@neop_*` answers a given room/seat. The room↔seat binding is the routing input; specify it before the box (likely room-state or a seat-map), don't improvise it on a live HS.
+- **Seat → `puppet_localpart` resolution — ✅ RESOLVED (no live guessing; derives from `handle()`'s output).**
+  The answering `@neop_*` is **not** a room-state lookup or a separate seat-map — it falls straight out of the
+  orchestrator result. `handle()` returns `result["neop"]` = the routed NEop (`orchestrator.py:105`,
+  `run_seat`). So `serve()` resolves the reply per raw as:
+  - `result = handle(raw, classifier, mode="live", ...)`.
+  - **`result["type"] == "response"`** → `puppet_localpart = "neop_" + result["neop"]` (e.g. routed `echo` →
+    `@neop_echo:<server_name>`); `reply_send(room_id, result, out_txn_id, puppet_localpart=...)` — which
+    **already** rejects any mxid outside the exclusive `@neop_.*` namespace (`service.py:110`) before a live
+    call, so a bad name fails closed, not on the HS. Sanitize `result["neop"]` to the localpart charset first.
+  - **`result["type"] ∈ {disambiguate, refuse, error}`** → reply **as the AS sender** (`@<sender_localpart>`,
+    the `@neos-bot`), **no puppet** — a system message (the decision's `question`/`reason`). These carry no
+    `result["neop"]` to puppet, and shouldn't: a routing refusal speaks as the bot, not as a NEop.
+  - `room_id = raw["conversation_id"]` (`matrix_adapter.py:105`). The room↔seat scope is already keyed in
+    `handle` via the human's mxid → `(tenant, requester)`; the puppet is the *routed NEop*, not the human.
+  ⇒ the "seat-map" this doc worried about doesn't need to exist for v1 — the mapping is `neop_<routed-neop>`,
+    computed from data `handle()` already returns. (nc-web / multi-NEop rooms may later add explicit binding.)
 - **`mode`/`rate`/`now_s`** — `serve()` calls `handle` with `mode="live"` (not "unit"); wire a real clock + rate limiter.
 
 ## 3a — the nc-channels ECS service (box build target, per D2 = separate service)
