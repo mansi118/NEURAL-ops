@@ -7,8 +7,14 @@
 
 ## 0 · Restore context (read first, in a fresh session)
 1. Read `docs/deployment/session-checkpoint-2026-07-05.md` — the resolved state (both scares grounded).
-2. **Verified facts (don't re-derive):** account `071126865245`/ap-south-1; this WSL box HAS creds+Docker+TF
-   (CLAUDE.md's "no creds" is stale). Live spine = **ECS Fargate** (convex/runtime/bridge, VPC `10.40`,
+2. **Verified facts (don't re-derive):** account `071126865245`/ap-south-1.
+   **⚠️ LOADED FACT — hold with its teeth:** this WSL box **has live creds + Docker + TF** (CLAUDE.md's "no
+   creds" is stale). This is the single most dangerous fact here — it's what made the misdirected apply
+   possible (live creds + a trusted-but-wrong tfstate → a redundant Synapse on the real account). **Every
+   `terraform apply`/`destroy` from here hits production `071126865245` for real, with no dry-run cushion.**
+   So plan-first + read-before-mutate is not hygiene here, it's the *only* thing between a command and an
+   irreversible production change. Record the capability WITH the caution, or a fresh instance inherits the
+   power without the lesson. Live spine = **ECS Fargate** (convex/runtime/bridge, VPC `10.40`,
    internal). Palace `/mcp` = `convex.neos-dogfood.local:3211` (in-VPC only). `matrix.neuraledge.in` = **real
    EC2 Synapse 1.150.0** (default VPC `172.31`). **Embedder healthy** (Titan-v2, 26/26 embedded). Ranking
    **unproven**. `Mempalace_NEOS` cloned+`npm ci`'d at `/mnt/c/Users/LENOVO/Desktop/Mempalace_NEOS` (HEAD #29).
