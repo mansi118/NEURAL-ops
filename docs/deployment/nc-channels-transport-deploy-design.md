@@ -61,6 +61,37 @@ The hard ordering, named so the box runs it as a checklist, not a discovery:
 2. **Config delivery is NOT a TF line** — `matrixdotorg/synapse` *generates* `/data/homeserver.yaml` from env on first boot (EFS at `/data`). There is no `app_service_config_files` and no injection mechanism today. Box options: pre-seed `/data` with a homeserver.yaml that includes `app_service_config_files: [/data/nc-channels.yaml]` + write `registration_yaml(...)` to that path; or a conf.d/entrypoint hook. Pick one at the box.
 3. **Chicken-and-egg** — the bridge needs Synapse to trust it (registration loaded) and Synapse needs the registration file (with tokens) before it'll route. Order: tokens → registration file on EFS → homeserver.yaml references it → restart Synapse → start the bridge → create bot/seat/room → first contact.
 
+## The live window — one mutation at a time (ordering; the anti-circular sequence)
+
+M1b, the comms-tier deploy, and the live-wire build are **no longer separable** — `_cs_api_call` has no
+offline definition, so it can only be built with deployed comms + a live runtime + a real Synapse all on the
+table at once. That makes the *order inside the one session* the whole game. The trap: the nc-channels ECS
+service (3a) can't deploy until `serve()` stops raising, but `serve()` is what you're building against the
+Synapse that service is meant to reach — deploy-the-service-first is circular. The way out is **box-process
+first (prove the handshake by hand), ECS service second (make it durable)** — never both live at once, or a
+first-contact failure has two possible owners (transport vs task health) and you're back to the July-1
+two-variables-at-once thrash. Run this as a checklist, verifying each step before the next:
+
+0. `[PRE-FLIGHT, offline — done]` G-A server_name baked (`matrix.neuraledge.in`, immutable); nc-channels ECS
+   TF authored + HELD (`enable_nc_channels=false`); reachability path chosen (runbook §In-session reachability).
+1. `[DEPLOY]` `terraform apply -var-file=phase2.tfvars` — comms tier up (Synapse + RDS + EFS + Redis + NATS).
+   **`enable_nc_channels` stays false** — the AS service does NOT come up yet.
+2. `[VERIFY]` Synapse healthy **with the right server_name** — exec/logs confirm `matrix.neuraledge.in`
+   baked (this is the irreversible byte; catch a wrong one here, before rooms exist, not after).
+3. `[DEPLOY]` AS registration + tokens (3c): mint `as_token`/`hs_token` → registration YAML on EFS →
+   `homeserver.yaml app_service_config_files` → restart Synapse. Create `@neos-bot` + a seat room.
+4. `[BOX-PROCESS]` **hand-drive `_cs_api_call` against the live Synapse** — a script run by hand (not an ECS
+   task), iterating the CS-API PUT until a puppet `@neop_*` message actually lands in the room. This is where
+   the live handshake is proven; owns exactly one variable.
+5. `[BOX]` **wrap the proven call in `serve()`** — de-stub `service.py:119/125`, run the HTTP server locally
+   against Synapse, confirm the full inbound-txn → handle → reply round-trip by hand.
+6. `[DEPLOY]` **NOW flip `enable_nc_channels=true` and apply** — the transport is proven, so the ECS task
+   comes up serving, not crash-looping. `nc-channels.<ns>:8010` matches the registration `url`.
+7. `[LIVE]` Element first contact (runbook steps 5–6) — the round-trip now runs through the durable service.
+
+Each `[VERIFY]` gate is a stop: a wrong server_name (step 2) or a failing hand-handshake (step 4) is caught
+*before* the step that would make it expensive to undo.
+
 ## Net
 Gap 3 is **box-gated almost in its entirety.** The offline work that remained was *design* (this doc), not
 *implementation* — and it's done: `serve()` is **specified** (D1, gate held), co-location **decided** (D2 =

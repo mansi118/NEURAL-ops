@@ -25,6 +25,12 @@ convex_image = "ghcr.io/get-convex/convex-backend:latest"
 # runtime_image = "071126865245.dkr.ecr.ap-south-1.amazonaws.com/neos-dogfood-runtime@sha256:..."
 # bridge_image  = "071126865245.dkr.ecr.ap-south-1.amazonaws.com/neos-dogfood-bridge@sha256:..."
 
+# ── G-A (element-first-contact-runbook) — Matrix server_name, permanent at first boot ──
+# Must match phase2 (a phase3 apply supersets phase2; the homeserver's identity is already baked). See the
+# phase2.tfvars note: SELF-CONTAINED name (server_name == the homeserver's own address), no `.well-known`
+# delegation, overriding the `.local` default. Independent of enable_bridge_identity (the governance flip).
+synapse_server_name = "matrix.neuraledge.in"
+
 # TLS — enable for any non-throwaway enforcement deploy.
 # domain_name     = "gateway.neuraledge.in"
 # route53_zone_id = "Z..."
