@@ -109,8 +109,8 @@ variable "managed_secret_keys" {
   # key lives in the Convex deployment env (`convex env set GEMINI_API_KEY`), never injected into the
   # runtime container. (Removed vestigial EMBEDDER_API_KEY — T1.5; nothing in the runtime read it.)
   default = [
-    "ANTHROPIC_API_KEY",   # kept as fallback (selfcheck fallback path); empty unless ML supplies one
-    "OPENROUTER_API_KEY",  # M2/D2: the live runtime LLM key (primary, CLASSIFIER_PROVIDER=openrouter)
+    "ANTHROPIC_API_KEY",  # kept as fallback (selfcheck fallback path); empty unless ML supplies one
+    "OPENROUTER_API_KEY", # M2/D2: the live runtime LLM key (primary, CLASSIFIER_PROVIDER=openrouter)
     "PALACE_BRIDGE_API_KEY",
     "CONVEX_SELF_HOSTED_ADMIN_KEY",
     "CONVEX_INSTANCE_SECRET",
@@ -248,9 +248,40 @@ variable "synapse_image" {
   default     = "matrixdotorg/synapse:latest"
 }
 variable "synapse_server_name" {
-  description = "Matrix server_name (e.g. neuraledge.in)."
+  description = <<-EOT
+    Matrix server_name — IMMUTABLE at Synapse first boot (baked into every mxid). Default is the safe
+    non-resolvable placeholder; the comms-tier tfvars (phase2/phase3) override it to the real
+    self-contained name "matrix.neuraledge.in" (G-A, element-first-contact-runbook). Set it correctly
+    BEFORE the first comms-tier apply — it cannot be changed without destroying the homeserver.
+  EOT
   type        = string
   default     = "neuraledge.local"
+}
+
+# ── nc-channels AS transport service (HELD — see nc-channels.tf) ──
+variable "enable_nc_channels" {
+  description = <<-EOT
+    Bring up the nc-channels Matrix AS service. HELD at false: service.serve()/_cs_api_call() still raise
+    NotImplementedError (transport-deploy-design D1 — proven at the box against live Synapse, never a mock),
+    so flipping this true before that transport is hand-proven deploys a crash-looping task. Flip ONLY in
+    the live window, AFTER _cs_api_call round-trips by hand. Requires enable_comms_tier=true (needs Synapse).
+  EOT
+  type        = bool
+  default     = false
+}
+variable "nc_channels_image" {
+  description = <<-EOT
+    Container image for the nc-channels AS service. Likely the SAME app image as runtime_image (frontdoor +
+    runtime are called in-process by orchestrator.handle → dispatch) with a `serve()` entrypoint — the exact
+    entrypoint is a box-build detail of transport-deploy-design 3b, undetermined until serve() exists.
+  EOT
+  type        = string
+  default     = "PLACEHOLDER.dkr.ecr.ap-south-1.amazonaws.com/neos-nc-channels:latest"
+}
+variable "nc_channels_port" {
+  description = "Port nc-channels listens on for HS→AS transactions (PUT /_matrix/app/v1/transactions/{txnId})."
+  type        = number
+  default     = 8010
 }
 variable "synapse_task_cpu" {
   description = "Fargate CPU for Synapse."

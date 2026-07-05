@@ -17,7 +17,7 @@ authoring the TF:
 
 | # | Gap (traced) | Why it blocks Element | Fix (deploy-gated) |
 |---|---|---|---|
-| **G-A** | `synapse_server_name` default = **`neuraledge.local`** (`variables.tf:250`), not the `matrix.neuraledge.in` the integration plan assumed | A `.local` `server_name` is not publicly resolvable; mxids (`@seat:neuraledge.local`) won't federate or resolve from a laptop | set `synapse_server_name = "neuraledge.in"` (or a real owned domain) in the tfvars; serve client API under `matrix.<domain>` |
+| **G-A** ✅ authored | `synapse_server_name` default = **`neuraledge.local`** (`variables.tf:250`), not publicly resolvable | A `.local` `server_name` is not resolvable; mxids (`@seat:neuraledge.local`) won't federate or resolve | **DONE (config):** `synapse_server_name = "matrix.neuraledge.in"` set in `phase2.tfvars` + `phase3.tfvars`, overriding the `.local` default. Chose the **self-contained** name (server_name == the homeserver's own address) over the `neuraledge.in` **delegation** form specifically to avoid a *permanent* apex `.well-known/matrix/*` dependency (server_name is immutable at first boot, so a discovery path you can't serve is unrecoverable). Must be set *before* the first comms-tier apply. Apply still deploy-gated; G-B is then plain public ingress at `https://matrix.neuraledge.in` — **no delegation, no `.well-known`.** |
 | **G-B** | Synapse is **internal-only** — SG ingress from `var.vpc_cidr` on `:8008`, Cloud Map `synapse.<ns>:8008`, **no public ALB** (`synapse.tf:69-88`) | Element on a laptop is outside the VPC and cannot reach an internal Cloud Map address | add a public **HTTPS ALB → :8008** for the Synapse client API + TLS cert, **or** run Element inside the VPC (bastion / SSM port-forward) for the very first smoke |
 | **G-C** | **AS registration not mounted** — the Synapse task env sets `SYNAPSE_SERVER_NAME`/`REPORT_STATS` only; no `app_service_config_files`; and **no nc-channels ECS service exists** in the TF | Synapse won't route the seat's rooms to the bridge, so messages never reach `orchestrator.handle` | mount `registration_yaml(...)` (from `nc_channels/registration.py`) into Synapse's `homeserver.yaml` `app_service_config_files`; add an nc-channels Fargate service + internal route so the HS can `PUT` transactions to it |
 
@@ -32,6 +32,29 @@ offline, applying them is the deploy gate.
    NATS. (Synapse resources are all `count = enable_comms_tier ? 1 : 0`.)
 3. `[DEPLOY]` **G-A/B/C closed** — public server_name, public client-API ingress, AS registration mounted +
    nc-channels service running. Without these Element cannot reach or round-trip.
+
+## In-session reachability (the G-B deferral path — pin this BEFORE the box)
+
+G-B (public HTTPS ALB → `:8008`) is correctly deferred — first contact does **not** need a public
+homeserver. But "defer the ALB" must not silently become "defer *reachability*": Element still has to reach
+the internal Synapse (`synapse.<name>.local:8008`, private subnets) somehow in the session. Pin the path now
+so it isn't the thing you discover is missing at first contact. Traced: **there is no bastion / SSM host /
+tailnet in `infra/terraform` today** — so the reachability substrate is itself a small pre-flight, not a
+given.
+
+**Recommended alpha path — SSM port-forward, no new public ingress, no TLS:**
+1. A minimal SSM-managed jump instance in a private subnet (or reuse any SSM-registered box in the VPC).
+2. `aws ssm start-session --target <id> --document-name AWS-StartPortForwardingSessionToRemoteHost
+   --parameters '{"host":["synapse.<name>.local"],"portNumber":["8008"],"localPortNumber":["8008"]}'`
+   → laptop `localhost:8008` tunnels to the internal homeserver.
+3. **Element _Desktop_** (not Web) → homeserver `http://localhost:8008`. Element Web (a browser secure
+   context) refuses a plaintext `http://` homeserver; Element Desktop accepts `localhost` over http, so the
+   alpha smoke needs **no TLS and no cert** — the self-contained `server_name` (G-A) means there's no
+   `.well-known` to serve either. mxids show as `@seat:matrix.neuraledge.in` regardless of the tunnel URL.
+
+**Alternatives** (pick one, don't improvise live): a Tailscale subnet-router task advertising the VPC CIDR
+(laptop on the tailnet reaches `10.40.x` directly); or bring G-B forward (public ALB + ACM cert + Element
+Web) if you want the real ingress in this window anyway. The SSM path is the smallest and is the default.
 
 ## First-contact steps (each gate-tagged; mechanical once prereqs hold)
 1. `[DEPLOY]` **Generate the AS registration** — `python -c "from nc_channels.registration import registration_yaml; ..."`
@@ -60,7 +83,9 @@ offline, applying them is the deploy gate.
 ## Failure triage (the unknowns this runbook deliberately narrows to)
 Because the *contract* is confirmed offline, a first-contact failure is almost certainly **transport/deploy**,
 not logic. Check in this order:
-1. **Element can't reach the homeserver** → G-B (no public ingress / TLS / `.well-known/matrix/client`).
+1. **Element can't reach the homeserver** → G-B (no public ingress / TLS). Point Element's homeserver
+   directly at `https://matrix.neuraledge.in` — with the self-contained `server_name` (G-A) there is **no
+   `.well-known` delegation** to get wrong; the base URL *is* the server_name.
 2. **Login works, messages vanish** → G-C (registration not loaded, or nc-channels URL unreachable from the HS).
 3. **`@neop_*` reply rejected by the HS** → namespace mismatch between the registration regex and the puppet mxid.
 4. **Seat served as `_admin` / denied** → scope not baked (shim env `PALACE_ID`/`NEOP_ID`); see CLAUDE.md SHARP EDGE.
