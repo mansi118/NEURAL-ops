@@ -100,9 +100,12 @@ Scope: the test seat `(palaceId = PID_TEST, neopId = seat_gap1)`.
    - **Rank 1** result is the BLUEFERN closet from step 1 (id match).
    - Its score is **above the adaptive retrieval floor** (#29) — proves "better than the noise."
    - **AND its absolute similarity ≥ `ABS_MIN`** — a concrete bound proving "the embedding actually worked,"
-     independent of where the adaptive floor sits. **Pin `ABS_MIN` from the offline retrieval runs before
-     the box** (a near-exact semantic match should score *well clear* of the floor — expect Titan cosine to
-     land high; use the measured offline value, not a guess).
+     independent of where the adaptive floor sits. **Pin `ABS_MIN` from the OBLIQUE query (2b), not the
+     near-hit (2a).** 2a scores high and would tempt a high `ABS_MIN`; but the bar has to be clearable by the
+     *harder legitimate* retrieval (2b) while still rejecting degenerate/collapsed-floor matches. So set
+     `ABS_MIN` from where a **correct-but-oblique 2b hit lands in the offline runs, with margin below that** —
+     high enough to reject a degenerate match, low enough that a real 2b embedding passes. Pin it to 2a and
+     you either make 2b impossible or make the floor meaningless. Measured offline value, not a guess.
    - The result set is **non-empty**.
 
    **Why BOTH the floor and the absolute bound (this is the July-1 hole):** the floor is *adaptive* — a
