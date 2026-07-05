@@ -3,18 +3,25 @@
 # password lives in an RDS-managed Secrets Manager secret, never in TF). Synapse signing keys + media
 # persist on EFS.
 #
-# NAMED ACTIVATION STEP: the client API (8008) must become PUBLIC for seats' Matrix clients to connect —
-# an ALB host rule (matrix.<domain>) + TLS + federation (8448) if used. That ingress is wired at activation
-# (P3), not here; this builds the substrate (Synapse + RDS + EFS) internal-first, validate-clean.
+# ⛔ RETIRED / DISARMED — ADR-matrix-homeserver (2026-07-05). The canonical NEOS homeserver is the EXISTING
+# EC2 Synapse at matrix.neuraledge.in (Synapse 1.150.0, live since 2026-04-04), NOT this Fargate build.
+# On 2026-07-05 an `apply -var-file=phase2.tfvars` stood this up as a redundant, broken second Synapse and it
+# was reverted. To make that un-runnable (not just warned against), every resource here is gated on
+# local.synapse_enabled = enable_comms_tier && enable_fargate_synapse, and enable_fargate_synapse defaults
+# false and is set by NO tfvars. So phase2 now brings up the legit comms tier (NATS/ClickHouse/Redis) but
+# NEVER a second Synapse. Do not flip enable_fargate_synapse without superseding the ADR.
+locals {
+  synapse_enabled = var.enable_comms_tier && var.enable_fargate_synapse
+}
 
 resource "aws_db_subnet_group" "synapse" {
-  count      = var.enable_comms_tier ? 1 : 0
+  count      = local.synapse_enabled ? 1 : 0
   name       = "${local.name}-synapse-db"
   subnet_ids = aws_subnet.private[*].id
 }
 
 resource "aws_security_group" "synapse_db" {
-  count       = var.enable_comms_tier ? 1 : 0
+  count       = local.synapse_enabled ? 1 : 0
   name        = "${local.name}-synapse-db-sg"
   description = "Postgres 5432 from the Synapse task only."
   vpc_id      = aws_vpc.main.id
@@ -38,7 +45,7 @@ resource "aws_security_group" "synapse_db" {
 }
 
 resource "aws_db_instance" "synapse" {
-  count                       = var.enable_comms_tier ? 1 : 0
+  count                       = local.synapse_enabled ? 1 : 0
   identifier                  = "${local.name}-synapse"
   engine                      = "postgres"
   engine_version              = "16"
@@ -58,7 +65,7 @@ resource "aws_db_instance" "synapse" {
 
 # EFS — Synapse signing keys + media (must persist across task restarts).
 resource "aws_efs_file_system" "synapse" {
-  count          = var.enable_comms_tier ? 1 : 0
+  count          = local.synapse_enabled ? 1 : 0
   creation_token = "${local.name}-synapse"
   encrypted      = true
   kms_key_id     = aws_kms_key.main.arn
@@ -66,7 +73,7 @@ resource "aws_efs_file_system" "synapse" {
 }
 
 resource "aws_security_group" "synapse" {
-  count       = var.enable_comms_tier ? 1 : 0
+  count       = local.synapse_enabled ? 1 : 0
   name        = "${local.name}-synapse-sg"
   description = "Synapse client API (8008) from in-VPC (the gateway/nc-channels); egress to RDS/EFS."
   vpc_id      = aws_vpc.main.id
@@ -90,7 +97,7 @@ resource "aws_security_group" "synapse" {
 }
 
 resource "aws_security_group" "synapse_efs" {
-  count       = var.enable_comms_tier ? 1 : 0
+  count       = local.synapse_enabled ? 1 : 0
   name        = "${local.name}-synapse-efs-sg"
   description = "EFS NFS (2049) from the Synapse task only."
   vpc_id      = aws_vpc.main.id
@@ -114,14 +121,14 @@ resource "aws_security_group" "synapse_efs" {
 }
 
 resource "aws_efs_mount_target" "synapse" {
-  count           = var.enable_comms_tier ? var.az_count : 0
+  count           = local.synapse_enabled ? var.az_count : 0
   file_system_id  = aws_efs_file_system.synapse[0].id
   subnet_id       = aws_subnet.private[count.index].id
   security_groups = [aws_security_group.synapse_efs[0].id]
 }
 
 resource "aws_efs_access_point" "synapse" {
-  count          = var.enable_comms_tier ? 1 : 0
+  count          = local.synapse_enabled ? 1 : 0
   file_system_id = aws_efs_file_system.synapse[0].id
 
   posix_user {
@@ -142,7 +149,7 @@ resource "aws_efs_access_point" "synapse" {
 }
 
 resource "aws_service_discovery_service" "synapse" {
-  count = var.enable_comms_tier ? 1 : 0
+  count = local.synapse_enabled ? 1 : 0
   name  = "synapse"
 
   dns_config {
@@ -160,14 +167,14 @@ resource "aws_service_discovery_service" "synapse" {
 }
 
 resource "aws_cloudwatch_log_group" "synapse" {
-  count             = var.enable_comms_tier ? 1 : 0
+  count             = local.synapse_enabled ? 1 : 0
   name              = "/ecs/${local.name}-synapse"
   retention_in_days = 30
   kms_key_id        = aws_kms_key.main.arn
 }
 
 resource "aws_ecs_task_definition" "synapse" {
-  count                    = var.enable_comms_tier ? 1 : 0
+  count                    = local.synapse_enabled ? 1 : 0
   family                   = "${local.name}-synapse"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
@@ -223,7 +230,7 @@ resource "aws_ecs_task_definition" "synapse" {
 }
 
 resource "aws_ecs_service" "synapse" {
-  count           = var.enable_comms_tier ? 1 : 0
+  count           = local.synapse_enabled ? 1 : 0
   name            = "${local.name}-synapse"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.synapse[0].arn

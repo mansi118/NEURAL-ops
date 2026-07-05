@@ -247,6 +247,17 @@ variable "synapse_image" {
   type        = string
   default     = "matrixdotorg/synapse:latest"
 }
+
+# ⛔ Structural disarm of the Fargate Synapse (ADR-matrix-homeserver, 2026-07-05). The canonical homeserver
+# is the EXISTING EC2 Synapse at matrix.neuraledge.in, NOT synapse.tf. This var gates every synapse.tf
+# resource (via local.synapse_enabled) and defaults false + is set by NO tfvars, so phase2 can never rebuild
+# the redundant Synapse that was mistakenly applied + reverted on 2026-07-05. Do not set true without
+# superseding the ADR.
+variable "enable_fargate_synapse" {
+  description = "RETIRED — do not enable. Gates the superseded Fargate synapse.tf. See ADR-matrix-homeserver."
+  type        = bool
+  default     = false
+}
 variable "synapse_server_name" {
   description = <<-EOT
     Matrix server_name — IMMUTABLE at Synapse first boot (baked into every mxid). Default is the safe
