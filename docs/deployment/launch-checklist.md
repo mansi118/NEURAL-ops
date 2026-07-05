@@ -27,6 +27,20 @@ where the next session will actually be looking:
    already answered **NO** at file:line. Re-opening it is re-litigating a settled, evidence-grounded decision.
 4. **The LLM provider is orthogonal** to the runtime (`ADR-llm.md`) — either runtime can use either provider.
 
+**Two epistemic weights — do not confuse them (this is the seam a future session could pry):**
+- `✅⟨S⟩` **settled premises are CLOSED to adjudication.** Cite them, build on them, do **not** reopen. The
+  question "is Hermes the runtime" is decided; re-asking it is the exact drift this block exists to stop.
+- `📄⟨ADR⟩→re-confirm` tags are **OPEN to verification, NOT to adjudication.** They were true weeks ago about
+  a repo not opened this session. You may **not** trust them without re-tracing, and you may **not** stretch
+  "re-confirm" into "re-decide." Step zero of any work touching one is re-tracing the live repo at file:line.
+- **Decision vs evidence — hold both:** the *decision* (Premise 1: Hermes) is settled; the *evidence's
+  current state* is verify-on-contact. Re-tracing `pi-neop-runtime` for GAP-1 re-verifies the evidence the
+  ADR rests on — that is expected and correct. **The ONLY thing that can reopen Premise 1 is a fresh trace
+  showing the cited file:line evidence no longer holds.** If a re-trace finds drift (e.g. `memory.ts` moved,
+  or `core.py:4-6` no longer self-declares reference-mode), that is **"the ADR's evidence is stale — flag
+  it"**, and **the decision still stands until a NEW trace with NEW evidence overturns it** on the record —
+  never a silent re-open on a `→re-confirm` tag.
+
 ⇒ **Phase 0 is DONE.** The real pre-M1b work is GAP-1 ∧ GAP-2 on Hermes (Phase 1).
 
 ## § THE LIVE-SEAM LAW — July-1, promoted from incident to law (applied at *every* seam below)
