@@ -56,7 +56,8 @@ class ASService:
     """Stateful per-tenant AS. Holds the registration + a seen-txn set (at-least-once delivery dedup)."""
 
     def __init__(self, reg: ASRegistration, *, handle: Callable, classifier,
-                 hs_base_url: str = "http://localhost:8008", transport: Optional[Callable] = None):
+                 hs_base_url: str = "http://localhost:8008", transport: Optional[Callable] = None,
+                 seat_url: Optional[str] = None, forward_token: str = ""):
         if not (reg.tenant and reg.tenant.strip()):
             raise ValueError("AS registration needs a tenant (one AS per tenant, CA-5)")
         if not reg.hs_token:
@@ -70,6 +71,11 @@ class ASService:
         # Injectable transport (method,url,data,headers)->(status,dict). None ⇒ real urllib. Lets request
         # CONSTRUCTION be unit-tested without faking the Synapse handshake (that stays box-proven, D1).
         self._transport = transport
+        # B-fwd (reflect=False): the Hermes seat wrapper endpoint (POST /seat/turn) + the shared secret the
+        # bridge presents. core.py raises on live, so a REAL reply is forwarded to Hermes (ADR-wire-b-forwarding),
+        # NOT dispatched in-process. Fail-closed: reflect=False refuses without BOTH (never a naked forward).
+        self.seat_url = seat_url.rstrip("/") if seat_url else None
+        self.forward_token = forward_token
 
     # ---- inbound auth (offline-verifiable) ----
     def verify_hs_token(self, presented: Optional[str]) -> bool:
@@ -171,7 +177,9 @@ class ASService:
                         if reflect:
                             result = {"stream": ["echo ⟳ " + (raw.get("text") or "")]}
                         else:
-                            result = svc._handle(raw, svc._classifier, mode="live")   # Bar 1b/2 (needs M1b)
+                            # B-fwd: forward to the Hermes seat wrapper; render its ReplyEnvelope.text (Bar 1b/2).
+                            envelope = svc._seat_forward(raw)
+                            result = {"stream": [envelope.get("text") or ""]}
                         send = svc.reply_send(raw.get("conversation_id"), result, "ncq-" + uuid.uuid4().hex)
                         svc._cs_api_call(send)
                     except Exception as e:                 # one bad message must not drop the whole txn
@@ -202,6 +210,39 @@ class ASService:
         with urllib.request.urlopen(req, timeout=15) as r:     # pragma: no cover  (box-proven, not unit)
             raw = r.read().decode("utf-8")
             return r.status, (json.loads(raw) if raw.strip() else {})
+
+    def _seat_forward(self, raw: dict) -> dict:
+        """B-fwd (reflect=False): forward a message to the Hermes seat wrapper and return its ReplyEnvelope.
+
+        POST {seat_url} body={message,conversationId,userId,idempotencyKey}, `Authorization: Bearer <forward_token>`.
+        Scope is NOT sent — the wrapper bakes (palaceId, neopId) from its own env and rejects any scope key we
+        might send (M_SCOPE_SPOOF). We carry only the message + Matrix identity. FAIL-CLOSED: refuse without a
+        seat_url AND a forward_token (never a naked, unauthenticated forward — ADR-wire-b-forwarding trust seam).
+        Request CONSTRUCTION is unit-tested via the injectable transport; the live hop is box-proven."""
+        if not self.seat_url:
+            raise RuntimeError("reflect=False requires seat_url (the Hermes POST /seat/turn endpoint) — refusing")
+        if not self.forward_token:
+            raise RuntimeError("reflect=False requires forward_token (bridge→seat auth) — refusing (fail-closed)")
+        body = {
+            "message": raw.get("text") or "",
+            "conversationId": raw.get("conversation_id") or "",
+            "userId": raw.get("user_id") or "",
+            "idempotencyKey": raw.get("msg_id") or "",
+        }
+        headers = {"Content-Type": "application/json",
+                   "Authorization": f"Bearer {self.forward_token}"}
+        data = json.dumps(body).encode("utf-8")
+        if self._transport is not None:
+            status, resp = self._transport("POST", self.seat_url, data, headers)
+        else:  # pragma: no cover  (box-proven, not unit)
+            import urllib.request
+            req = urllib.request.Request(self.seat_url, data=data, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=30) as r:
+                body_txt = r.read().decode("utf-8")
+                status, resp = r.status, (json.loads(body_txt) if body_txt.strip() else {})
+        if status != 200 or not isinstance(resp, dict):
+            raise RuntimeError(f"seat forward failed: http {status} {str(resp)[:240]}")
+        return resp
 
 
 def _matches_namespace(mxid: str, regex: str) -> bool:
