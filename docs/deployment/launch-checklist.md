@@ -33,16 +33,28 @@ path and corrects two now-stale status lines. `✅⟨S07⟩` = verified at file:
    targets. `ADR-llm` holds: **provider is orthogonal to runtime** (§SETTLED Premise 4). *(us-east-1 token 403s
    against the spine — mint ap-south-1; rotate the transient verification token.)*
 5. **`pi-neop-runtime` IS checked out on this box** (`/mnt/c/Users/LENOVO/Desktop/pi-neop-runtime`) — corrects
-   Phase-1's "not checked out" note. GAP-1 target `src/brokers/memory.ts` is the live-retrieval seam (re-confirm).
+   Phase-1's "not checked out" note.
 6. **Phase-2 correction — the transport is coded, not a bare stub.** `nc_channels/service.py`: `serve()` (`:132`),
    `_cs_api_call` real CS-API send (`:196`), fail-closed `_seat_forward` (`:214`, the Wire-B seam). `✅⟨S07⟩`
    Still **`[BOX]`-gated against real Synapse** (LIVE-SEAM LAW) — but no longer `NotImplementedError`. **8 seam PRs
    merged** this arc; **Wire-B DECIDED**: nc-channels forwards `raw` to the Hermes seat over HTTP
    (`ADR-wire-b-forwarding.md`), not bridge-ported-into-Hermes.
+7. **GAP-1's OFFLINE PORT IS ALREADY COMPLETE + WIRED — the ADR's `memory.ts:23` "not wired" throw is STALE.**
+   `✅⟨S07⟩` re-confirmed at file:line: `src/brokers/memory.ts` proxies CORTEX-PALACE via `PalaceClient`
+   (`retrieve`→`palace_search` `:39-49`, `write`→`palace_remember` `:51-68`), and `src/brokers/palaceClient.ts`
+   is the shim ported **1:1** — scope **baked from env, never from args**, **fail-closed** on blank scope AND on
+   explicit `_admin`/`_system`, model-supplied scope keys rejected *loudly* (`FORBIDDEN_ARG_KEYS`). Wired into
+   **both** run paths: task (`supervisor.ts:67,97`) and reply (`seat/server.ts:54`→`wrapper.ts:192`→`reply.ts:47`).
+   **16 `palaceClient` tests green**, incl. *"a smuggled neopId cannot override the baked seat"* and *"retrieve
+   returns [] on ok-but-empty (proof decides empty=FAIL, not the broker)."* ⇒ **GAP-1 has NO offline `[A]`
+   residual; it stands at the box wall.** (This is the 3rd stale remembered-line-number caught by re-confirm
+   this arc — the discipline working.)
 
-⇒ **Bedrock provider done (delta 3, #8).** The model-side of Phase 1 is now code-complete; what's left is
-GAP-1 (port `memory.ts` live retrieval — offline) then all `[BOX]`/`[U]`: mint ap-south-1 bearer → in-VPC
-generate → GAP-1/GAP-2 live proofs → T9. **Next offline action: GAP-1** (the `/mcp` contract port into `memory.ts`).
+⇒ **Both offline halves of Phase 1 are done: model path (delta 3, #8) AND GAP-1 memory port (delta 7).** What
+remains is **not offline** — it is `[BOX]`/`[U]`: mint ap-south-1 bearer → in-VPC generate → GAP-1 live ranked
+retrieval (empty=FAIL) → GAP-2 Node jail → T9 (STOP-AND-ASK). **The next `[A]` candidate is GAP-2's jail
+ARTIFACT** (Dockerfile + egress config, authored offline, isolation proven at box) — confirm before starting;
+GAP-1 needs nothing more offline.
 
 ---
 
@@ -97,30 +109,29 @@ class**: our code first meeting real infra. One law governs all of them:
 - **Gate:** ✅ cleared.
 
 ## Phase 1 — Hermes earns M1b (the real pre-launch engineering; the chat plan under-scoped this)
-Both gaps live in **`pi-neop-runtime` — an external repo NOT checked out on this box.** Nothing in Phase 1 is
-advanceable from this WSL box; it needs the repo + a box for the live proofs. **Every file:line below tagged
-`📄⟨ADR⟩` is from the weeks-old ADR and MUST be re-confirmed against the freshly-checked-out repo first —
-`memory.ts` may have moved or half-closed since 2026-06-30.**
+`pi-neop-runtime` **IS checked out on this box now** (§DELTA-5,7). Re-tracing at file:line (2026-07-07) found
+**GAP-1's offline port already COMPLETE** — the weeks-old ADR's "`memory.ts:23` throws" was STALE. So the
+offline `[A]` work here is **done** (model path #8 + GAP-1 port); what remains is the **box** proofs (Docker +
+spine) + `[U]` gates. **The re-confirm caught this before a re-port — the discipline, working (§DELTA-7).**
 
-- [x] `[U]` **Check out `pi-neop-runtime`** — now present on this box (`/mnt/c/Users/LENOVO/Desktop/pi-neop-runtime`,
+- [x] `[U]` **Check out `pi-neop-runtime`** — present on this box (`/mnt/c/Users/LENOVO/Desktop/pi-neop-runtime`,
       §DELTA-5); still needs a real *box* (Docker + spine) for the live proofs.
-- [ ] `[A]` **Re-trace, step zero of the real work** — re-confirm the two blockers at file:line in the live
-      repo *before* touching them: (a) `src/brokers/memory.ts` still throws on live PALACE retrieval; (b) no
-      container/egress-jail artifact present. Verify the child, not "the ADR said so." `📄⟨ADR⟩→re-confirm`
-- [ ] `[U]`/`[A]` **Wire the model path** (updated by §DELTA-3/4 — no longer Anthropic-direct-only). `[A]`:
-      implement the **`amazon-bedrock`** provider in `resolveLiveModel()` (`src/brokers/model.ts:37-40,147-163`;
-      `✅⟨S07⟩` bedrock not yet present) — the ~10-line registry-verified change. `[U]`: set the key — either
-      **Anthropic-direct** (`ANTHROPIC_API_KEY`) OR **Bedrock-Nova-in-VPC** (`AWS_BEARER_TOKEN_BEDROCK`,
-      **ap-south-1**), the sealed-spine path. Provider is orthogonal to runtime (§SETTLED Premise 4).
-      (OpenRouter is the parked-rotation key — don't route brains through a secret you've deferred rotating.)
-- [ ] `[A]` **GAP-1 — port the `/mcp` contract.**
-      **Source (verified this session):** `neop_jcode_adapter/palace_mcp_shim.py:20-24` — body
-      `{tool,palaceId,neopId,params}` + header `X-Palace-Neop`, scope **baked from env**, **fail-closed on
-      blank PALACE_ID/NEOP_ID** (blank → palace defaults `_admin`, which **bypasses all ACL**). `✅⟨S⟩`
-      **Destination (re-confirm):** `pi-neop-runtime/src/brokers/memory.ts:23` — today `throw "live PALACE
-      retrieval not wired"`, `write()` a no-op sink. `📄⟨ADR⟩→re-confirm`. Port scope-bake + ACL-respecting
-      client + forward-looking Ed25519 sign. **The throw is honest (it refuses to fake) — replacing it is
-      exactly a live-seam event: match-to-shim is not match-to-live-Convex.**
+- [x] `[A]` **Re-trace, step zero of the real work** — re-confirmed the two blockers at file:line 2026-07-07:
+      (a) `src/brokers/memory.ts` does **NOT** throw — it proxies live PALACE via `PalaceClient` (GAP-1 ported,
+      §DELTA-7); (b) container/egress-jail artifact **still absent** → GAP-2 is the real remaining build. Verified
+      the child, not "the ADR said so" — and the child had moved. `✅⟨S07⟩`
+- [x] `[A]` **Wire the model path** (§DELTA-3) — **`amazon-bedrock` provider IMPLEMENTED** in `resolveLiveModel()`
+      (`src/brokers/model.ts`), `mansi118/pi-neop-runtime#8`, 84/84 green, fail-closed. `✅⟨S07⟩`
+- [ ] `[U]` **Set the model key** — either **Anthropic-direct** (`ANTHROPIC_API_KEY`) OR **Bedrock-Nova-in-VPC**
+      (`AWS_BEARER_TOKEN_BEDROCK`, **ap-south-1**), the sealed-spine path. Provider orthogonal to runtime (§SETTLED
+      Premise 4). (OpenRouter is the parked-rotation key — don't route brains through a secret deferred rotating.)
+- [x] `[A]` **GAP-1 — port the `/mcp` contract → DONE (§DELTA-7).** `src/brokers/palaceClient.ts` ports the shim
+      **1:1**: body `{tool,palaceId,neopId,params}` + `X-Palace-Neop`, scope **baked from env, never from args**,
+      **fail-closed** on blank scope AND explicit `_admin`/`_system`, forbidden scope-keys rejected loudly,
+      forward-looking Ed25519 sign. `memory.ts` `retrieve`→`palace_search` / `write`→`palace_remember`; wired into
+      task (`supervisor.ts:67,97`) + reply (`server.ts:54`→`wrapper.ts:192`→`reply.ts:47`) paths. **16 tests
+      green.** `✅⟨S07⟩` *The throw was already replaced — match-to-shim proven offline; match-to-live-Convex is the
+      box proof below (still owed).*
 - [ ] `[BOX]` **GAP-1 proof — live ranked-memory run on Hermes** (LIVE-SEAM LAW). First time Hermes-native
       retrieval hits real Convex; it can fail the identical way #30's fusion did — green offline, empty/wrong
       against the live index. **empty = FAIL, held literally** (`embedder-as-built.md:18`). **Trigger to
