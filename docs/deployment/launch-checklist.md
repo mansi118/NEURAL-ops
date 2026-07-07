@@ -49,12 +49,23 @@ path and corrects two now-stale status lines. `✅⟨S07⟩` = verified at file:
    returns [] on ok-but-empty (proof decides empty=FAIL, not the broker)."* ⇒ **GAP-1 has NO offline `[A]`
    residual; it stands at the box wall.** (This is the 3rd stale remembered-line-number caught by re-confirm
    this arc — the discipline working.)
+8. **GAP-2's OFFLINE HALF IS DONE (`#97`) — and "artifact absent" was the 4th stale premise.** `✅⟨S07⟩` The
+   image (`pi-neop-runtime/Dockerfile`, non-root, read-only-compatible) + jail policy (`isolation.py::
+   build_jail_spec`, fail-closed) already existed. The real offline work a trace surfaced was **one Decision-2
+   landmine + one dangling SoT**: `egress_allowlist` had **no `amazon-bedrock` host**, so the fail-closed jail
+   would have **refused to launch the sealed-spine model path** (surfacing at the box as *"Nova won't answer"*).
+   Fixed: `PROVIDER_EGRESS_HOST["amazon-bedrock"] = bedrock-runtime.ap-south-1.amazonaws.com` (in-VPC →
+   PrivateLink, `endpoints.tf`); authored the missing `docs/JAIL.md` SoT the Dockerfile references. **Blast
+   radius = exactly one casualty**: `seat_adapter`/`render()` are jcode-config-scoped and correctly exclude
+   Bedrock (a look-alike, NOT a casualty); the terraform `bedrock-runtime` endpoint is already provisioned.
+   **224 green.** `JAIL.md` ↔ `isolation.py` are a **matched pair** — future egress changes update both.
 
-⇒ **Both offline halves of Phase 1 are done: model path (delta 3, #8) AND GAP-1 memory port (delta 7).** What
-remains is **not offline** — it is `[BOX]`/`[U]`: mint ap-south-1 bearer → in-VPC generate → GAP-1 live ranked
-retrieval (empty=FAIL) → GAP-2 Node jail → T9 (STOP-AND-ASK). **The next `[A]` candidate is GAP-2's jail
-ARTIFACT** (Dockerfile + egress config, authored offline, isolation proven at box) — confirm before starting;
-GAP-1 needs nothing more offline.
+⇒ **All THREE offline halves of Phase 1 are done: model path (#8) · GAP-1 memory port (delta 7) · GAP-2 egress
+policy (delta 8, #97).** The offline critical path is **closed.** What remains is **not offline** — `[BOX]`/`[U]`:
+mint ap-south-1 bearer → in-VPC generate → GAP-1 live ranked retrieval (empty=FAIL) → **GAP-2 isolation
+ENFORCEMENT + cross-tenant red-team** (needs a live 2nd palace; policy-correct ≠ confines-an-attacker) → T9
+(STOP-AND-ASK). Off the critical path, the only remaining `[A]` is the **parallel-track meta-NEops** (§Parallel
+track) — re-confirm before building (this arc caught 4 stale "not done" premises).
 
 ---
 
@@ -110,16 +121,18 @@ class**: our code first meeting real infra. One law governs all of them:
 
 ## Phase 1 — Hermes earns M1b (the real pre-launch engineering; the chat plan under-scoped this)
 `pi-neop-runtime` **IS checked out on this box now** (§DELTA-5,7). Re-tracing at file:line (2026-07-07) found
-**GAP-1's offline port already COMPLETE** — the weeks-old ADR's "`memory.ts:23` throws" was STALE. So the
-offline `[A]` work here is **done** (model path #8 + GAP-1 port); what remains is the **box** proofs (Docker +
-spine) + `[U]` gates. **The re-confirm caught this before a re-port — the discipline, working (§DELTA-7).**
+**GAP-1 AND GAP-2's offline halves already substantially built** — the weeks-old ADR's "`memory.ts:23` throws"
+and the "jail artifact absent" claims were BOTH STALE. So the offline `[A]` work here is **done** (model path
+#8 · GAP-1 port · GAP-2 egress #97); what remains is the **box** proofs (Docker + spine) + `[U]` gates. **The
+re-confirm caught both before a re-build — the discipline, working (§DELTA-7,8).**
 
 - [x] `[U]` **Check out `pi-neop-runtime`** — present on this box (`/mnt/c/Users/LENOVO/Desktop/pi-neop-runtime`,
       §DELTA-5); still needs a real *box* (Docker + spine) for the live proofs.
-- [x] `[A]` **Re-trace, step zero of the real work** — re-confirmed the two blockers at file:line 2026-07-07:
+- [x] `[A]` **Re-trace, step zero of the real work** — re-confirmed at file:line 2026-07-07:
       (a) `src/brokers/memory.ts` does **NOT** throw — it proxies live PALACE via `PalaceClient` (GAP-1 ported,
-      §DELTA-7); (b) container/egress-jail artifact **still absent** → GAP-2 is the real remaining build. Verified
-      the child, not "the ADR said so" — and the child had moved. `✅⟨S07⟩`
+      §DELTA-7); (b) the jail artifact was **NOT absent** — image (`Dockerfile`) + policy (`build_jail_spec`)
+      existed; the real gap was a Decision-2 egress landmine + a missing `JAIL.md` (GAP-2, §DELTA-8, #97).
+      Verified the child, not "the ADR said so" — and the child had moved **both** times. `✅⟨S07⟩`
 - [x] `[A]` **Wire the model path** (§DELTA-3) — **`amazon-bedrock` provider IMPLEMENTED** in `resolveLiveModel()`
       (`src/brokers/model.ts`), `mansi118/pi-neop-runtime#8`, 84/84 green, fail-closed. `✅⟨S07⟩`
 - [ ] `[U]` **Set the model key** — either **Anthropic-direct** (`ANTHROPIC_API_KEY`) OR **Bedrock-Nova-in-VPC**
@@ -136,13 +149,17 @@ spine) + `[U]` gates. **The re-confirm caught this before a re-port — the disc
       retrieval hits real Convex; it can fail the identical way #30's fusion did — green offline, empty/wrong
       against the live index. **empty = FAIL, held literally** (`embedder-as-built.md:18`). **Trigger to
       green:** a reproduced real ranked hit on real memory — not "memory.ts returned something."
-- [ ] `[A]` **GAP-2 — containerize Hermes under the T7 egress-jail spec.**
-      **Blast-radius note (state it, don't discover it):** the swap from the Python runtime to Node moves the
-      jail target — the T7 spec as previously specced may carry **Python-shaped assumptions**. GAP-2 therefore
-      = **validate the jail spec against the Node process model**, then build the artifact (rootfs RO, caps
-      dropped, egress confined to the palace, metadata + internet blocked). Not "apply T7 unchanged."
-- [ ] `[BOX]` **GAP-2 proof — Hermes-native isolation, equivalent to live T7.** The jcode jail result does
-      **not** transfer. **Trigger to green:** clean red-team isolation on the Node runtime.
+- [x] `[A]` **GAP-2 — jail artifact reconciled with the Node runtime + Decision 2 → DONE (§DELTA-8, #97).**
+      The predicted "Python-shaped assumption" turned out **provider-shaped**: the egress allowlist defaulted
+      anthropic and had **no `amazon-bedrock` host**, so the fail-closed jail would have blocked the sealed-spine
+      model path (a box-time landmine — *"Nova won't answer"*). Fixed the allowlist (`bedrock-runtime.ap-south-1`,
+      in-VPC PrivateLink), authored the missing `docs/JAIL.md` SoT (matched pair with `isolation.py`), traced the
+      blast radius to **exactly one casualty**. Image + lockdown already correct (non-root, RO rootfs, caps
+      dropped, egress→palace only). **224 green.** `✅⟨S07⟩`
+- [ ] `[BOX]` **GAP-2 proof — isolation ENFORCEMENT + cross-tenant red-team.** Policy-correct ≠ confines-an-attacker:
+      the firewall actually dropping a third host + `test_redteam_isolation.py` against a **live 2nd palace**. The
+      jcode jail result does **not** transfer. **Trigger to green:** clean adversarial isolation on the Node runtime.
+      (Also the earn-out's go-wider gate — Phase 4.)
 - [ ] `[A]` **Build M1b** — first real NEop full-loop (receive → plan → retrieve real ranked memory → act →
       verify) on Hermes, against the real stack.
 - [ ] `[U]` **T9 go** — box-session authorization for the first real NEop run (CLAUDE.md STOP-gate).
