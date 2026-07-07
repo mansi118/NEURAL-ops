@@ -13,6 +13,37 @@
 
 ---
 
+## § SESSION DELTA — 2026-07-07 (folded into the 07-05 SSOT; phase bodies below still hold)
+Verified this session against the live repos. **None of this re-opens Phase 0** — it advances Phase 1's model
+path and corrects two now-stale status lines. `✅⟨S07⟩` = verified at file:line 2026-07-07.
+
+1. **The chat "End-to-End Launch Plan" resurfaced and was re-declined.** Its Phase-0 "adjudicate the runtime"
+   reverts to the pre-ADR premise this doc supersedes (§SETTLED Premise 3). Runtime stays **DECIDED = Hermes**.
+2. **Deploy-topology DECIDED: Bedrock-Nova-in-VPC** (sealed spine, no NAT; Fork 1 = provisioning). PR **#94**
+   merged. `deploy-topology-design.md`. The single model-egress finding surfaced at three layers (runtime never
+   reached a model · wrapper had no model path · historical write-quarantine) — one root cause, one fix.
+3. **The model path is now a specified offline build, registry-verified** (`modelbroker-bedrock-provider-design.md`;
+   PR **#95**): `pi-neop-runtime/src/brokers/model.ts` gets provider **`"amazon-bedrock"`** (pi-ai `KnownProvider`),
+   bearer **`AWS_BEARER_TOKEN_BEDROCK`**, region **`ap-south-1`**, model **`apac.amazon.nova-lite-v1:0`** (Converse/
+   Nova). **NOT yet implemented** — `PROVIDER_KEY_ENV` still holds only anthropic/openrouter (`model.ts:37-40`).
+   `✅⟨S07⟩` This is the **~10-line change** that is the last offline model-side piece. One `[BOX]` question left:
+   does pi-ai's `region` map bare→`apac.*`, or must the profile id be passed directly.
+4. **Reconciles Phase-1's "set the model key":** it is no longer Anthropic-direct-only. Two live options, both real
+   — **Anthropic-direct** OR **Bedrock-Nova-in-VPC (ap-south-1 bearer)**, the sealed-spine path the wrapper build
+   targets. `ADR-llm` holds: **provider is orthogonal to runtime** (§SETTLED Premise 4). *(us-east-1 token 403s
+   against the spine — mint ap-south-1; rotate the transient verification token.)*
+5. **`pi-neop-runtime` IS checked out on this box** (`/mnt/c/Users/LENOVO/Desktop/pi-neop-runtime`) — corrects
+   Phase-1's "not checked out" note. GAP-1 target `src/brokers/memory.ts` is the live-retrieval seam (re-confirm).
+6. **Phase-2 correction — the transport is coded, not a bare stub.** `nc_channels/service.py`: `serve()` (`:132`),
+   `_cs_api_call` real CS-API send (`:196`), fail-closed `_seat_forward` (`:214`, the Wire-B seam). `✅⟨S07⟩`
+   Still **`[BOX]`-gated against real Synapse** (LIVE-SEAM LAW) — but no longer `NotImplementedError`. **8 seam PRs
+   merged** this arc; **Wire-B DECIDED**: nc-channels forwards `raw` to the Hermes seat over HTTP
+   (`ADR-wire-b-forwarding.md`), not bridge-ported-into-Hermes.
+
+⇒ **Next offline action:** implement the Bedrock provider (delta 3) + unit-test. Then Phase 1 is `[BOX]`/`[U]`.
+
+---
+
 ## § SETTLED PREMISES — read before planning anything (put here so the next session inherits the decision *with* its proof)
 A decision recorded only in an ADR lost to a plan that never cited it. So it is restated here, with evidence,
 where the next session will actually be looking:
@@ -69,12 +100,16 @@ advanceable from this WSL box; it needs the repo + a box for the live proofs. **
 `📄⟨ADR⟩` is from the weeks-old ADR and MUST be re-confirmed against the freshly-checked-out repo first —
 `memory.ts` may have moved or half-closed since 2026-06-30.**
 
-- [ ] `[U]` **Check out `pi-neop-runtime`** into the box workspace (never opened this session).
+- [x] `[U]` **Check out `pi-neop-runtime`** — now present on this box (`/mnt/c/Users/LENOVO/Desktop/pi-neop-runtime`,
+      §DELTA-5); still needs a real *box* (Docker + spine) for the live proofs.
 - [ ] `[A]` **Re-trace, step zero of the real work** — re-confirm the two blockers at file:line in the live
       repo *before* touching them: (a) `src/brokers/memory.ts` still throws on live PALACE retrieval; (b) no
       container/egress-jail artifact present. Verify the child, not "the ADR said so." `📄⟨ADR⟩→re-confirm`
-- [ ] `[U]` **Set the model key — Anthropic-direct.** Not just preferable: per ADR child-1 the runtime's
-      `resolveLiveModel()` (`src/brokers/model.ts:123-142`) **requires `ANTHROPIC_API_KEY`**. `📄⟨ADR⟩→re-confirm`
+- [ ] `[U]`/`[A]` **Wire the model path** (updated by §DELTA-3/4 — no longer Anthropic-direct-only). `[A]`:
+      implement the **`amazon-bedrock`** provider in `resolveLiveModel()` (`src/brokers/model.ts:37-40,147-163`;
+      `✅⟨S07⟩` bedrock not yet present) — the ~10-line registry-verified change. `[U]`: set the key — either
+      **Anthropic-direct** (`ANTHROPIC_API_KEY`) OR **Bedrock-Nova-in-VPC** (`AWS_BEARER_TOKEN_BEDROCK`,
+      **ap-south-1**), the sealed-spine path. Provider is orthogonal to runtime (§SETTLED Premise 4).
       (OpenRouter is the parked-rotation key — don't route brains through a secret you've deferred rotating.)
 - [ ] `[A]` **GAP-1 — port the `/mcp` contract.**
       **Source (verified this session):** `neop_jcode_adapter/palace_mcp_shim.py:20-24` — body
@@ -116,9 +151,10 @@ Mechanics **pre-flighted in PR #71**; the live build/apply is the box window. Or
 - [ ] `[BOX]` **VERIFY server_name baked** = `matrix.neuraledge.in` on the live HS (the one irreversible byte).
 - [ ] `[BOX]` **G-C, HS side** — mint `as_token`/`hs_token` → registration YAML on EFS → `homeserver.yaml
       app_service_config_files` → restart Synapse (transport-deploy-design 3c).
-- [ ] `[BOX]` **Build the transport** (LIVE-SEAM LAW) — hand-drive `_cs_api_call` against **real Synapse** →
-      wrap in `serve()` (`nc_channels/service.py:119/125`, box-gated `NotImplementedError`, **never faked
-      offline**). Reproduce a real `@neop_*` reply in the room before claiming the seam.
+- [ ] `[BOX]` **Prove the transport** (LIVE-SEAM LAW) — `serve()`/`_cs_api_call`/`_seat_forward` are now
+      **coded** (`nc_channels/service.py:132/196/214`, `✅⟨S07⟩` — see §DELTA-6), no longer a stub; hand-drive
+      `_cs_api_call` against **real Synapse** and exercise `serve()` end-to-end. **Coded ≠ proven — the seam is
+      still `[BOX]`, never faked offline.** Reproduce a real `@neop_*` reply in the room before claiming it.
 - [ ] `[U]` **G-C, AS side** — flip `enable_nc_channels=true` + apply (comes up serving, not crash-looping).
 - [ ] `[U]` **Reachability** — SSM port-forward + **Element Desktop** over `http://localhost:8008` (alpha, no
       TLS/`.well-known`), **or** bring G-B (public ALB + ACM) forward for outside-team access.
