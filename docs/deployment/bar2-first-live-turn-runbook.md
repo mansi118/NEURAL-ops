@@ -38,6 +38,9 @@ no palace, no T9.
 ---
 
 ## Phase 1 — the three T9-prerequisite proofs (all three green before Phase 2)
+> **▶ Model + memory core (Proof A / Proof B) → `docs/deployment/box-proofs-A-B-card.md`** — the copy-paste
+> pass/fail card for "Nova generates in-VPC" (`nrt probe-model`) and "memory ranks" (`ranked_retrieval_proof.py`).
+> Run those two FIRST (they isolate the brains), then A2 / GAP-2 enforcement below.
 
 ### 1A — B: GAP-1 ranked retrieval (the memory the reply path stands on)
 The conversational reply is `assembleContext + generate`; `assembleContext` is GAP-1's live retrieval. Prove
