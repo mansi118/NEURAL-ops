@@ -156,8 +156,12 @@ old write-quarantine finding**:
   - endpoint = `bedrock-runtime.ap-south-1.amazonaws.com/model/apac.amazon.nova-lite-v1:0/invoke` via the
     **existing bedrock-runtime PrivateLink** (the Titan embedder's path, `lib/qwen.ts`).
   - model = **`apac.amazon.nova-lite-v1:0`** (APAC inference profile; bare `amazon.nova-*` rejects on-demand).
-  - **verified in-VPC** per the code ("a bearer-token Nova invoke returns cleanly"), corroborated independently
-    by a probe (`apac.amazon.nova-lite-v1:0` → "OK").
+  - **verified in-VPC** per the code ("a bearer-token Nova invoke returns cleanly") + the fact bedrockLlm.ts
+    was *written because* Gemini-from-no-NAT broke. (NOTE: my earlier `apac.amazon.nova-lite-v1:0`→"OK" probe
+    is **demoted, not load-bearing** — it ran as dev-box user `mansi-synlex` via the PUBLIC endpoint with IAM
+    SigV4, NOT the `AWS_BEARER_TOKEN_BEDROCK` bearer token on the in-VPC PrivateLink. It corroborates only
+    "the account has Nova access," not "the wrapper's in-VPC bearer path works." The code's verified-in-VPC
+    note + the fix-history are the actual evidence.)
 - **⇒ Decision 2 = Bedrock-Nova-in-VPC, sealed spine, no NAT. Fork 1 (fixable).** The account is NOT
   hard-blocked on generation (only Anthropic-on-Bedrock is). Reconciles ML's "not invokable" (true for the
   *wrapper task* — unprovisioned) with ADR-llm's "Nova live" (true for *Convex* — via the bearer path).

@@ -1,0 +1,83 @@
+# ModelBroker Bedrock provider — design (faithful port against a proven mechanism)
+
+> The code half of Decision 2 (`deploy-topology-design.md`): give `pi-neop-runtime`'s `ModelBroker` a
+> **Bedrock (Nova) provider**, so the wrapper generates in-VPC over the sealed spine (no NAT). Scopeable
+> today because the mechanism is proven; the deployed-live + region-matched-token confirmations are box-verifies.
+
+## Why this is a small, faithful change (not a from-scratch integration)
+- **pi-ai already supports Bedrock with bearer-token auth + Nova.** Verified in its dist: `bedrock` (390×),
+  `AWS_BEARER_TOKEN_BEDROCK` (3×), `converse` (90×), `nova`/`amazon.` refs. So Bedrock-Nova can be a real
+  `ModelBroker` provider that the pi Agent consumes as a `Model` — **no pi-Agent bypass** (both the Generate
+  path AND the task path get Bedrock).
+- **`Mempalace_NEOS/convex/lib/bedrockLlm.ts` is the working reference** (verified in-VPC 2026-06-29): endpoint
+  `bedrock-runtime.<region>/model/apac.amazon.nova-lite-v1:0/invoke`, `Authorization: Bearer <AWS_BEARER_TOKEN_BEDROCK>`,
+  Nova body `{system, messages, inferenceConfig}`. The provider maps THIS into pi-ai's interface.
+
+## Primary path (P1) — add `bedrock` to `ModelBroker` (`src/brokers/model.ts`)
+Transcription against the existing provider machinery (`resolveLiveModel` is already provider-generic —
+`registryGetModel(provider, wanted)`):
+```ts
+export const PROVIDER_KEY_ENV = {
+  anthropic: "ANTHROPIC_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+  bedrock:   "AWS_BEARER_TOKEN_BEDROCK",   // + NEW
+};
+const DEFAULT_MODEL = {
+  anthropic: "claude-sonnet-4-6",
+  openrouter:"anthropic/claude-haiku-4.5",
+  bedrock:   "apac.amazon.nova-lite-v1:0", // + NEW (APAC inference profile; bare amazon.nova-* rejects on-demand)
+};
+```
+- **Provider selection:** set `NEOP_PROVIDER=bedrock` for the wrapper (do NOT change the global
+  `DEFAULT_PROVIDER` — that would break unit-mode expectations). `resolveProvider` already reads `NEOP_PROVIDER`.
+- **Fail-closed inherited:** `resolveLiveModel` already throws if `PROVIDER_KEY_ENV[provider]` env is unset
+  (`model.ts:159-163`) → blank `AWS_BEARER_TOKEN_BEDROCK` refuses at construction. No new fail-open surface.
+- **In-VPC networking is DNS, not config:** in the spine, `bedrock-runtime.ap-south-1.amazonaws.com` resolves
+  to the PrivateLink via the `endpoints.tf` private-DNS override — so no `baseUrl` override; the default
+  hostname reaches the endpoint (same as `bedrockLlm.ts`).
+
+## THE DELTAS FROM THE REFERENCE — read these closely (a faithful port's risk lives here)
+1. **pi-ai's exact provider-key + model-id form.** Confirm `registryGetModel("bedrock",
+   "apac.amazon.nova-lite-v1:0")` resolves — pi-ai's provider id might be `"bedrock"` vs `"amazon-bedrock"`,
+   and the model id may need a prefix. *Unit-verify against pi-ai's registry before trusting.*
+2. **Bearer wiring — env-direct vs `getApiKey`.** pi-ai references `AWS_BEARER_TOKEN_BEDROCK` directly (3×), so
+   it may read the bearer from env itself rather than via `ModelBroker.getApiKey` (how anthropic/openrouter
+   flow). Confirm the bearer actually reaches the request; if pi-ai self-serves it, `getApiKey` is moot for
+   bedrock (document that asymmetry).
+3. **REGION must match the spine (proven gotcha).** The bearer token is region-scoped: a **us-east-1 token
+   403s against ap-south-1** (tested 2026-07-07). pi-ai's bedrock provider must target **`ap-south-1`** (the
+   spine + `bedrockLlm.ts` region) with the **APAC** profile, and the provisioned `AWS_BEARER_TOKEN_BEDROCK`
+   must be **ap-south-1-scoped**. Confirm pi-ai lets you set `AWS_REGION`/region for the bedrock provider.
+4. **Nova format = Converse, not anthropic-messages.** pi-ai has `converse` (90×) + `nova` refs, so it should
+   format `amazon.*` via the Converse API (works for Nova). Confirm it doesn't force the anthropic-messages
+   invoke shape (Claude-on-Bedrock only) — that would break Nova. If it does, fall back to P2.
+5. **Loud, DISTINCT invoke errors** (the lesson of this whole thread). Wrap resolution/invoke failures so
+   `403 auth-invalid`, `model-not-invoke-granted`, and `region-mismatch` surface as *named* errors — not a
+   generic "model resolution failed." The next such issue must be diagnosable, not mysterious.
+
+## Fallback path (P2) — direct `bedrockGenerate` (only if P1's Nova-format check fails)
+If pi-ai's bedrock provider turns out Nova-incompatible (delta #4), port `bedrockLlm.ts` directly into a
+`Generate = (system,user)=>Promise<string>` (`src/seat/bedrockGenerate.ts`) — a bearer-token `fetch` to the
+same endpoint, wired into the seam's Generate seam. This covers the **conversational path** (classify + reply,
+which only need text→text) — enough for the first live turn (conversational, `approvals:"deny"`). The TASK
+path (pi Agent) would still need P1. Keep P2 documented as the contained fallback, not the default.
+
+## Fail-closed / least-privilege posture (carried, not re-derived)
+- Reads `AWS_BEARER_TOKEN_BEDROCK` from env; **refuses at construction if blank** (inherited from
+  `resolveLiveModel`). No fallback to another provider/path on a missing bedrock token.
+- **Model id parameterized** (`NRT_MODEL` overrides `DEFAULT_MODEL.bedrock`) — if Claude-on-Bedrock ever
+  un-gates, it's a config change, not a rewrite.
+
+## Depends on (operator / box — NOT this code)
+1. **Provision the wrapper task:** `AWS_BEARER_TOKEN_BEDROCK` **(ap-south-1-scoped)** as a secret + SG/subnet
+   reach to the `bedrock-runtime` VPC endpoint. (The deployed Convex's working ap-south-1 token is the source
+   of truth / shareable reference.)
+2. **Box-verify:** with the ap-south-1 token, `registryGetModel("bedrock", "apac.amazon.nova-lite-v1:0")`
+   resolves AND a real generate returns cleanly in-VPC. Doubles as confirming the Convex extraction path
+   (the quarantine fix) is live.
+
+## Honest state
+Built against a **proven mechanism** (pi-ai bedrock+bearer+Nova support + `bedrockLlm.ts` in-VPC verification).
+NOT yet proven: pi-ai's exact registry form (delta #1/#2), Nova-via-pi-ai (#4), and the region-matched token +
+in-VPC reach (deps). Those are a unit-check (registry form) + a box-verify (in-VPC generate) — small, bounded,
+against a target that demonstrably works. This is the code half; the provisioning + box-verify stay ML's.
