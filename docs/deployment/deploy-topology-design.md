@@ -92,6 +92,48 @@ The wrapper must reach a model. In the no-NAT spine:
    by design" note implies an ALB exists but with no target; confirm.
 3. **Synapse's default-VPC reachability** if you ever consider peering (Decision 1 Option A fallback).
 
+## READ RESULTS — reality resolves Decision 2 (2026-07-07, live AWS read, no apply)
+Ran the low-risk read before deciding. It collapsed the fork — and surfaced a finding of the same class as
+`core.py`-raises-on-live.
+
+1. **No-NAT is REAL, TF is accurate (not stale).** `describe-nat-gateways` = `[]` (none in the account). The
+   runtime task (`neos-dogfood-runtime`) runs in subnets `subnet-0ed33ab…` + `subnet-025eb00af…` — **both
+   private, no `0.0.0.0/0` route** — with **`assignPublicIp: DISABLED`**. ⇒ **The runtime has ZERO internet
+   egress.** OpenRouter (internet) is genuinely unreachable; the TF and reality agree.
+
+2. **THE FINDING — the runtime has NEVER reached a model or processed a turn.** Its logs, repeated every
+   boot, say verbatim:
+   - `[runtime] boot self-check passed; idle — transport arrives in S0.3 (nc-channels)`
+   - `[selfcheck] WARN missing recommended classifier fallback: set one of OPENROUTER_API_KEY (running degraded)`
+   So: **`OPENROUTER_API_KEY` is not even set** ("missing… running degraded"), the runtime **boots,
+   self-checks, and sits IDLE** waiting for transport that nothing wired until our seam. **Zero turns, zero
+   model calls, zero egress errors** (nothing to error — it never tried). ⇒ **The "convex/runtime/bridge
+   healthy 1/1" banked all arc = container-healthy + IDLE, NOT functionally working.** Running ≠
+   has-reached-a-model, confirmed at the deepest layer. `endpoints.tf`'s "model/embedder egress is deferred"
+   is literally true: **the live-model path was never built** — not a regression, an always-future item now
+   coming due. This is the first time a real model path gets built.
+
+3. **Bedrock catalog is reachable; generation models are present.** `list-foundation-models` returns
+   `anthropic.claude-opus-4-8`, `claude-haiku-4-5`, and the Nova family (TEXT out). Nova generative is
+   **T0-verified in-VPC** (CLAUDE.md, serves ingestion extraction). **Catalog-listed ≠ invoke-granted**,
+   though — Anthropic-on-Bedrock was gated (use-case form); the listing doesn't prove invoke access.
+
+### ⇒ Decision 2 is FORCED (not a free choice): **Bedrock-in-VPC.**
+- **OpenRouter is ruled out.** It never worked, the key isn't set, and enabling it means `enable_nat_gateway=
+  true` — **punching an internet hole in the sealed spine**, fighting the entire GAP-2 jail + `endpoints.tf`
+  no-internet posture. Building containment and opening the VPC to the internet in the same move is self-defeating.
+- **Bedrock-in-VPC** (via the existing `bedrock-runtime` PrivateLink the Titan embedder already uses) keeps
+  the spine sealed and reuses a proven path. **Cost:** `pi-neop-runtime`'s `ModelBroker` has no Bedrock
+  provider (`PROVIDER_KEY_ENV` = `{anthropic, openrouter}`) → **bounded code work to add a `bedrock` provider**
+  (Nova, or Claude-on-Bedrock if invoke-access is confirmed). "Bounded code to keep the spine sealed" beats
+  "open the sealed spine to the internet to avoid writing a provider."
+
+### New box-verify at deploy (the one thing the read couldn't settle)
+**Does the in-VPC `bedrock-runtime` endpoint actually INVOKE** — reconfirm Nova generation, and **test whether
+Claude-on-Bedrock is now invokable** on this account (the catalog lists it; CLAUDE.md said gated — may have
+changed). A single test-invoke from in-VPC (CodeBuild) settles it and picks the wrapper's model. If Nova only,
+the wrapper uses Nova; if Claude-on-Bedrock invokes, prefer it for a NEop.
+
 ## Net
 The wrapper is pinned to the spine VPC (internal palace). The rest is two decisions driven by the no-NAT
 constraint: **(1) bridge on the matrix box** (Synapse=localhost, one authed hop to the wrapper) — recommended
