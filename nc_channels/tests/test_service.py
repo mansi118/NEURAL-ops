@@ -4,6 +4,7 @@ Covers hs_token auth (header + legacy query fallback), transaction dedup (at-lea
 the inbound transaction → raws mapping (loop filter applied), the outbound CS-API send descriptor,
 and puppet-namespace enforcement. The live HTTP server + CS-API call are box-gated (raise) and not run.
 """
+import json
 import os
 import sys
 
@@ -126,12 +127,44 @@ def test_reply_send_puppet_outside_namespace_rejected():
         svc.reply_send("!r:server", {"stream": ["hi"]}, "out3", puppet_localpart="eve")
 
 
-# ---- box-gated boundary ----
+# ---- the live wire: request CONSTRUCTION unit-tested via injected transport ----
+# The live Synapse handshake itself stays box-proven (never mocked, D1); what we CAN prove offline is
+# that _cs_api_call assembles the exact CS-API request the spec requires. serve() is no longer gated —
+# it's implemented (Bar 1a hardcoded reflect); the live round-trip is proven on the box, not here.
 
-def test_live_wire_is_box_gated():
-    svc = make_service()
-    with pytest.raises(NotImplementedError):
-        svc.serve("0.0.0.0", 8009)
+def test_cs_api_call_builds_request():
+    captured = {}
+
+    def capture(method, url, data, headers):
+        captured.update(method=method, url=url, data=data, headers=headers)
+        return 200, {"event_id": "$sent"}
+
+    svc = ASService(make_reg(), handle=orchestrator.handle, classifier=None,
+                    hs_base_url="http://localhost:8008/", transport=capture)
+    send = svc.reply_send("!r:server", {"stream": ["hi", "there"]}, "out1")
+    status, resp = svc._cs_api_call(send)
+
+    assert captured["method"] == "PUT"
+    assert captured["url"] == (
+        "http://localhost:8008/_matrix/client/v3/rooms/!r:server/send/m.room.message/out1")
+    assert captured["headers"]["Authorization"] == "Bearer AS_TOK"
+    assert captured["headers"]["Content-Type"] == "application/json"
+    assert json.loads(captured["data"].decode("utf-8")) == {"msgtype": "m.text", "body": "hi there"}
+    assert status == 200 and resp == {"event_id": "$sent"}
+
+
+def test_cs_api_call_encodes_puppet_query():
+    captured = {}
+
+    def capture(method, url, data, headers):
+        captured.update(url=url)
+        return 200, {}
+
+    svc = ASService(make_reg(), handle=orchestrator.handle, classifier=None, transport=capture)
+    send = svc.reply_send("!r:server", {"stream": ["hi"]}, "out2", puppet_localpart="neop_planner")
+    svc._cs_api_call(send)
+    # puppet mxid rides as the ?user_id= query param (AS acting-as a namespaced NEop)
+    assert captured["url"].endswith("/send/m.room.message/out2?user_id=%40neop_planner%3Aserver")
 
 
 # ---- end-to-end: transaction → handle → reply_send (offline, unit dispatch) ----
