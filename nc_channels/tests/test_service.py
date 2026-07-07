@@ -167,6 +167,58 @@ def test_cs_api_call_encodes_puppet_query():
     assert captured["url"].endswith("/send/m.room.message/out2?user_id=%40neop_planner%3Aserver")
 
 
+# ---- B-fwd: the reflect=False forward to the Hermes seat wrapper (step 3) ----
+# Construction unit-tested via injected transport; the live Hermes hop is box-proven (never mocked).
+
+def _raw(text="what's my project?"):
+    return {"text": text, "conversation_id": "!r:server", "user_id": "neuraledge:alice", "msg_id": "$e1"}
+
+
+def test_seat_forward_builds_request():
+    captured = {}
+
+    def capture(method, url, data, headers):
+        captured.update(method=method, url=url, data=data, headers=headers)
+        return 200, {"kind": "reply", "text": "Your project is BLUEFERN."}
+
+    svc = ASService(make_reg(), handle=orchestrator.handle, classifier=None,
+                    seat_url="http://hermes:8090/seat/turn/", forward_token="FWD_TOK", transport=capture)
+    env = svc._seat_forward(_raw())
+
+    assert captured["method"] == "POST"
+    assert captured["url"] == "http://hermes:8090/seat/turn"           # trailing "/" normalized
+    assert captured["headers"]["Authorization"] == "Bearer FWD_TOK"    # bridge presents the shared secret
+    # message + Matrix identity only — NO scope keys (the wrapper bakes palaceId/neopId from its own env):
+    body = json.loads(captured["data"].decode("utf-8"))
+    assert body == {"message": "what's my project?", "conversationId": "!r:server",
+                    "userId": "neuraledge:alice", "idempotencyKey": "$e1"}
+    assert not ({"palaceId", "neopId", "tool", "params", "scope"} & set(body))
+    assert env["text"] == "Your project is BLUEFERN."
+
+
+def test_seat_forward_fails_closed_without_token():
+    svc = ASService(make_reg(), handle=orchestrator.handle, classifier=None,
+                    seat_url="http://hermes:8090/seat/turn", forward_token="")  # blank token
+    with pytest.raises(RuntimeError, match="forward_token"):
+        svc._seat_forward(_raw())
+
+
+def test_seat_forward_fails_closed_without_url():
+    svc = ASService(make_reg(), handle=orchestrator.handle, classifier=None, forward_token="FWD_TOK")
+    with pytest.raises(RuntimeError, match="seat_url"):
+        svc._seat_forward(_raw())
+
+
+def test_seat_forward_raises_on_non_200():
+    def capture(method, url, data, headers):
+        return 403, {"errcode": "M_FORBIDDEN"}
+
+    svc = ASService(make_reg(), handle=orchestrator.handle, classifier=None,
+                    seat_url="http://hermes:8090/seat/turn", forward_token="FWD_TOK", transport=capture)
+    with pytest.raises(RuntimeError, match="seat forward failed: http 403"):
+        svc._seat_forward(_raw())
+
+
 # ---- end-to-end: transaction → handle → reply_send (offline, unit dispatch) ----
 
 def test_transaction_to_reply_round_trip(tmp_path):
