@@ -10,6 +10,7 @@ homeserver from here without that wiring; the offline parts let the contract be 
 from __future__ import annotations
 
 import hmac as _hmac
+import json
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
@@ -54,7 +55,8 @@ class TransactionResult:
 class ASService:
     """Stateful per-tenant AS. Holds the registration + a seen-txn set (at-least-once delivery dedup)."""
 
-    def __init__(self, reg: ASRegistration, *, handle: Callable, classifier):
+    def __init__(self, reg: ASRegistration, *, handle: Callable, classifier,
+                 hs_base_url: str = "http://localhost:8008", transport: Optional[Callable] = None):
         if not (reg.tenant and reg.tenant.strip()):
             raise ValueError("AS registration needs a tenant (one AS per tenant, CA-5)")
         if not reg.hs_token:
@@ -63,6 +65,11 @@ class ASService:
         self._handle = handle
         self._classifier = classifier
         self._seen_txns: set = set()
+        # The homeserver CS-API base (localhost when nc-channels is co-located on the Synapse box — Bar 1a).
+        self.hs_base_url = hs_base_url.rstrip("/")
+        # Injectable transport (method,url,data,headers)->(status,dict). None ⇒ real urllib. Lets request
+        # CONSTRUCTION be unit-tested without faking the Synapse handshake (that stays box-proven, D1).
+        self._transport = transport
 
     # ---- inbound auth (offline-verifiable) ----
     def verify_hs_token(self, presented: Optional[str]) -> bool:
@@ -115,17 +122,86 @@ class ASService:
             path=f"/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn_id}",
             query=query, body=body)
 
-    # ---- BOX-GATED: the live wire (needs a reachable Synapse — infra step 7) ----
-    def serve(self, host: str, port: int):  # pragma: no cover
-        raise NotImplementedError(
-            "box-gated: starts the HTTP server for PUT /_matrix/app/v1/transactions/{txnId} (verify "
-            "hs_token, then process_transaction → handle → reply_send). Needs a reachable Synapse + the "
-            "AS registered in homeserver.yaml. The mapping/dedup/auth logic above is offline-tested.")
+    # ---- the live wire (IMPLEMENTED; correctness PROVEN AT THE BOX against real Synapse, never a mock) ----
+    def serve(self, host: str, port: int, *, reflect: bool = True):
+        """Start the AS HTTP server: PUT /_matrix/app/v1/transactions/{txnId}.
 
-    def _cs_api_call(self, send: OutboundSend):  # pragma: no cover
-        raise NotImplementedError(
-            "box-gated: performs the CS-API PUT with `Authorization: Bearer <as_token>`. The request "
-            "descriptor (path/query/body) is built+tested offline in reply_send.")
+        reflect=True  → **Bar 1a**: a hardcoded echo, NO runtime. core.py raises on live (see
+                        docs/deployment/bar1-open-questions.md), so this proves the TRANSPORT round-trip
+                        (Element → Synapse → nc-channels → Synapse → Element) without a live NEop.
+        reflect=False → the full handle→dispatch path (**Bar 1b/2**) — needs a live Hermes runtime (M1b);
+                        on the current Python runtime this raises and the message is logged, not answered.
+
+        Run at the box; the CS-API handshake is proven against real Synapse, never a mock (D1)."""
+        import sys
+        import uuid
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from urllib.parse import urlparse, parse_qs
+        svc = self
+
+        class _Handler(BaseHTTPRequestHandler):
+            def _reply(self, code, obj):
+                data = json.dumps(obj).encode("utf-8")
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_PUT(self):
+                pr = urlparse(self.path)
+                parts = pr.path.rstrip("/").split("/")
+                if len(parts) < 2 or parts[-2] != "transactions":   # /_matrix/app/v1/transactions/{txnId}
+                    return self._reply(404, {"errcode": "M_UNRECOGNIZED"})
+                txn_id = parts[-1]
+                q = {k: v[0] for k, v in parse_qs(pr.query).items()}
+                token = svc.bearer_from_headers(dict(self.headers.items()), q)
+                if not svc.verify_hs_token(token):
+                    return self._reply(403, {"errcode": "M_FORBIDDEN"})
+                try:
+                    length = int(self.headers.get("Content-Length", 0) or 0)
+                    body = json.loads(self.rfile.read(length) or b"{}")
+                except Exception:
+                    return self._reply(400, {"errcode": "M_NOT_JSON"})
+                res = svc.process_transaction(txn_id, body)
+                if res.deduped:
+                    return self._reply(200, {})            # at-least-once: repeated txn is a no-op
+                for raw in res.processed:
+                    try:
+                        if reflect:
+                            result = {"stream": ["echo ⟳ " + (raw.get("text") or "")]}
+                        else:
+                            result = svc._handle(raw, svc._classifier, mode="live")   # Bar 1b/2 (needs M1b)
+                        send = svc.reply_send(raw.get("conversation_id"), result, "ncq-" + uuid.uuid4().hex)
+                        svc._cs_api_call(send)
+                    except Exception as e:                 # one bad message must not drop the whole txn
+                        sys.stderr.write(f"nc-channels: reply failed for {raw.get('msg_id')}: {e}\n")
+                return self._reply(200, {})
+
+            def log_message(self, *a):
+                pass
+
+        httpd = ThreadingHTTPServer((host, port), _Handler)
+        sys.stderr.write(f"nc-channels serving on {host}:{port} (reflect={reflect}) → HS {svc.hs_base_url}\n")
+        httpd.serve_forever()
+
+    def _cs_api_call(self, send: OutboundSend):
+        """Execute the CS-API descriptor: PUT {hs_base_url}{path}?{query}, `Authorization: Bearer <as_token>`.
+        Request construction is unit-tested via the injectable transport; the live handshake is box-proven."""
+        import urllib.parse
+        import urllib.request
+        url = self.hs_base_url + send.path
+        if send.query:
+            url += "?" + urllib.parse.urlencode(send.query)
+        headers = {"Content-Type": "application/json",
+                   "Authorization": f"Bearer {self.reg.as_token}"}
+        data = json.dumps(send.body).encode("utf-8")
+        if self._transport is not None:
+            return self._transport(send.method, url, data, headers)
+        req = urllib.request.Request(url, data=data, headers=headers, method=send.method)
+        with urllib.request.urlopen(req, timeout=15) as r:     # pragma: no cover  (box-proven, not unit)
+            raw = r.read().decode("utf-8")
+            return r.status, (json.loads(raw) if raw.strip() else {})
 
 
 def _matches_namespace(mxid: str, regex: str) -> bool:
