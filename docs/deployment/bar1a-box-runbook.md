@@ -192,12 +192,44 @@ docker run -d --name nc-channels-bar1a --network "$NET" --restart unless-stopped
   python:3.12-slim python3 tools/run_nc_channels_bar1a.py
 sleep 2
 docker logs nc-channels-bar1a          # expect: "nc-channels serving on 0.0.0.0:8010 (reflect=True) → HS https://matrix.neuraledge.in"
-# prove Synapse can REACH the bridge over the network (403 = reached + rejected empty auth = GOOD; connection refused = BAD network/name):
-docker exec "$SYN" sh -c "wget -qO- --method=PUT http://nc-channels-bar1a:8010/_matrix/app/v1/transactions/probe 2>&1 || true"
+set -a; . ~/nc-bar1a.env; set +a
 ```
-A `403 M_FORBIDDEN` from that probe is the **success** signal — Synapse reached the bridge and the bridge
-correctly rejected an unauthenticated transaction. "Connection refused"/name-not-resolved = the bridge isn't
-on `$NET` or the name differs; fix before Step 7.
+
+There are **two tokens doing two directional jobs**, and both must be exercised — separately — or the same
+symptom (silence) hides three different faults. Run BOTH checks:
+
+**6a — REACH + fail-closed (the `hs_token`-REJECT path):** an empty-auth transaction must be rejected `403`.
+```bash
+docker run --rm --network "$NET" curlimages/curl -s -o /dev/null -w "6a http=%{http_code}\n" \
+  -X PUT "http://nc-channels-bar1a:8010/_matrix/app/v1/transactions/probe-empty"
+# expect: 6a http=403  → bridge is REACHABLE on $NET and fail-closed on missing auth (GOOD)
+# 000 / connection refused / could-not-resolve → bridge not on $NET or name differs — fix before Step 7
+```
+
+**6b — the `hs_token`-ACCEPT path (the check the reject-probe does NOT cover):** a well-formed transaction
+carrying the REAL `hs_token` must be ACCEPTED `200 {}`. This exercises `verify_hs_token` on the *pass* side.
+Empty `events` → the bridge replies `200 {}` with no CS-API call, so this isolates inbound auth from
+everything else (no room, no reply hop).
+```bash
+docker run --rm --network "$NET" curlimages/curl -s -w "\n6b http=%{http_code}\n" \
+  -X PUT "http://nc-channels-bar1a:8010/_matrix/app/v1/transactions/probe-accept-1" \
+  -H "Authorization: Bearer $HS_TOKEN" -H "Content-Type: application/json" --data '{"events":[]}'
+# expect: {}  then  6b http=200  → verify_hs_token ACCEPTED the real token (inbound auth success PROVEN)
+# 6b http=403 → hs_token MISMATCH between the bridge env and what Synapse will send. Diagnose with the grep below.
+```
+
+**Token-consistency (closes the loop to Synapse):** 6b proves the bridge accepts the *env* `hs_token`; this
+proves the registration Synapse actually loaded carries that SAME token — so Synapse's real transactions
+(which use the registration's `hs_token`) will pass 6b's accept path too. Mint-once/use-twice makes them
+equal by construction; verify it so a mismatch can never hide:
+```bash
+grep -q "hs_token: $HS_TOKEN" "$HOST_CFG/nc-channels-registration.yaml" 2>/dev/null || \
+  sudo grep -q "hs_token: $HS_TOKEN" "$HOST_CFG/nc-channels-registration.yaml" \
+  && echo "registration hs_token == env HS_TOKEN (Synapse will pass 6b's accept path)" \
+  || echo "STOP: registration hs_token != env — re-emit Step 3 from the current env, then re-restart Synapse"
+```
+Only proceed to Step 7 when **6a=403, 6b=200, and the token-consistency line is green.** Now silence in
+Step 7 can only be room-interest (Step 7 handles it) — the network and both token directions are proven.
 
 ---
 
@@ -209,16 +241,30 @@ Synapse becomes interested in it.
 # 7a. In Element: create a room, INVITE @neos-bot:neuraledge.in, and copy the internal room id
 #     (Element → room settings → Advanced → "Internal room ID", looks like !abcd...:neuraledge.in)
 ROOM='!PASTE_ROOM_ID:neuraledge.in'
-# 7b. @neos-bot accepts the invite via the as_token (the AS acts as its sender by default):
+# 7b. @neos-bot accepts the invite via the as_token (the AS acts as its sender by default).
+#     A 200 here IS the as_token-ACCEPT check: Synapse accepted the bridge's as_token (outbound-auth path OK).
 set -a; . ~/nc-bar1a.env; set +a
 curl -sf -X POST "https://matrix.neuraledge.in/_matrix/client/v3/join/$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$ROOM")" \
-  -H "Authorization: Bearer $AS_TOKEN" -H "Content-Type: application/json" -d '{}' && echo " <- @neos-bot joined"
+  -H "Authorization: Bearer $AS_TOKEN" -H "Content-Type: application/json" -d '{}' && echo " <- @neos-bot joined (as_token accepted)"
 # 7c. In Element, in that room, send:  hello
 #     Expected reply from @neos-bot:  echo ⟳ hello
 # watch it happen:
 docker logs -f nc-channels-bar1a
 ```
 `echo ⟳ hello` appears in Element = **Wire A proven. Bar 1a shipped: transport proven.**
+
+### If Element goes SILENT — the four distinct checks that tell the three faults apart
+Silence has three different causes with one symptom. Because each is a separate check, you can name which:
+
+| Check (where) | Green means | If red → the fault |
+|---|---|---|
+| **6a** empty-auth probe → `403` | bridge reachable on `$NET` + fail-closed | `000`/refused → **network**: bridge not on the network / wrong name |
+| **6b** real-`hs_token` probe → `200` + token-consistency | inbound auth accepts Synapse's token | `403` → **`hs_token` mismatch**: registration vs bridge env |
+| **7b** `@neos-bot` join → `200` | Synapse accepts the bridge's `as_token` (outbound) | `401/403` → **`as_token` mismatch**: bridge env vs registration |
+| **7 delivery** — did the bridge log an inbound txn on your message? | Synapse is interested + forwarding | no inbound log line → **room-interest**: `@neos-bot` not actually joined to THIS room |
+To read the fourth: `docker logs nc-channels-bar1a` after sending — an inbound line = Synapse forwarded (so
+any remaining silence is the reply hop, which 7b already proved). No inbound line at all = room-interest;
+re-confirm `@neos-bot` is a *joined* member of the exact room you typed in (not merely invited).
 
 ---
 

@@ -104,6 +104,10 @@ advanceable from this WSL box; it needs the repo + a box for the live proofs. **
 ## Phase 2 — The Matrix front door (launch surface)
 Mechanics **pre-flighted in PR #71**; the live build/apply is the box window. Ordering per
 `nc-channels-transport-deploy-design.md` §"The live window".
+> **▶ Bar 1a box session → `docs/deployment/bar1a-box-runbook.md`** (cold, copy-paste, your-hands-only).
+> It SUPERSEDES the Fargate/EFS + `matrix.neuraledge.in` framing in the `[BOX]` lines below: real HS is the
+> EC2 Synapse, `server_name = neuraledge.in` (#77/#85), regex `@neop_.*:neuraledge\.in`, bridge co-located
+> on the matrix box (no ALB, no palace). Wire model + B-fwd decision: `wiring-map.md` + `ADR-wire-b-forwarding.md`.
 - [x] `[A]` **G-A server_name** = `matrix.neuraledge.in` (immutable-safe, self-contained, no apex
       `.well-known`), baked in `phase2/phase3.tfvars`. `✅⟨S⟩`
 - [x] `[A]` **Held nc-channels ECS TF** (`nc-channels.tf`, `enable_nc_channels=false`) + live-window ordering
