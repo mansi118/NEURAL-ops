@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Tuple
 from urllib.parse import urlparse
 
-from .config_render import ANTHROPIC_PROVIDER, PROVIDER_EGRESS_HOST
+from .config_render import ANTHROPIC_PROVIDER, BEDROCK_PROVIDER, PROVIDER_EGRESS_HOST
 
 SeatId = Tuple[str, str]  # (palaceId, neopId)
 
@@ -58,7 +58,12 @@ _SENSITIVE_MOUNT_EXACT = frozenset({"/", "/home", "/usr", "/bin", "/sbin", "/lib
 def egress_allowlist(palace_mcp_url: str, provider: str = ANTHROPIC_PROVIDER) -> List[str]:
     """The ONLY hosts the jail permits out: the palace MCP host + the model provider host. Everything
     else is dropped. Fail-closed: a blank/unparseable palace URL or unknown provider raises (a jail with
-    no resolvable boundary must never launch)."""
+    no resolvable boundary must never launch).
+
+    Provider vocabulary follows the RUNTIME's provider id (the launcher passes it). For the Hermes runtime
+    on the SEALED SPINE (deploy-topology Decision 2) that is `BEDROCK_PROVIDER` (`amazon-bedrock`) — pass it
+    explicitly, or the default (`anthropic`) would allow the wrong host and the in-VPC Bedrock call would be
+    dropped at the box. The default is left as anthropic to avoid changing existing jcode-path callers."""
     host = urlparse(palace_mcp_url).hostname if palace_mcp_url else None
     if not host:
         raise ValueError("egress_allowlist: blank/unparseable palace_mcp_url — refusing (fail-closed)")

@@ -5,7 +5,8 @@ import pytest
 
 from neop_jcode_adapter.isolation import (
     IsolationUnit, build_jail_spec, egress_allowlist, JailSpec)
-from neop_jcode_adapter.config_render import OPENROUTER_PROVIDER, ANTHROPIC_PROVIDER
+from neop_jcode_adapter.config_render import (
+    OPENROUTER_PROVIDER, ANTHROPIC_PROVIDER, BEDROCK_PROVIDER, BEDROCK_EGRESS_HOST)
 
 URL = "https://small-dogfish-433.convex.site/mcp"
 SEAT = ("palace1", "aria")
@@ -20,14 +21,26 @@ def test_egress_openrouter():
     assert egress_allowlist(URL, OPENROUTER_PROVIDER) == ["openrouter.ai", "small-dogfish-433.convex.site"]
 
 
+def test_egress_bedrock():
+    # Decision 2: the jail MUST permit the sealed-spine Bedrock path, else it blocks the model at the box.
+    # The host is the region-pinned Bedrock endpoint (in-VPC → PrivateLink; endpoints.tf private_dns_enabled).
+    assert egress_allowlist(URL, BEDROCK_PROVIDER) == sorted(
+        [BEDROCK_EGRESS_HOST, "small-dogfish-433.convex.site"])
+    assert BEDROCK_EGRESS_HOST == "bedrock-runtime.ap-south-1.amazonaws.com"  # region-pinned, not us-east-1
+
+
 def test_egress_failclosed_blank_url():
     with pytest.raises(ValueError):
         egress_allowlist("", ANTHROPIC_PROVIDER)
 
 
 def test_egress_failclosed_unknown_provider():
+    # Fail-closed on a genuinely-unknown provider. NB bare "bedrock" is NOT the known id (that is
+    # "amazon-bedrock"/BEDROCK_PROVIDER), so it too must fail-closed — the known id is exact-match only.
     with pytest.raises(ValueError):
-        egress_allowlist(URL, "bedrock")
+        egress_allowlist(URL, "gemini-direct")
+    with pytest.raises(ValueError):
+        egress_allowlist(URL, "bedrock")  # bare != amazon-bedrock → still unknown
 
 
 # ── jail spec: maximally locked ───────────────────────────────────────────────
@@ -113,20 +126,17 @@ JCODE_IMAGE = "neos-jcode:latest"
 HERMES_IMAGE = "ghcr.io/mansi118/pi-neop-runtime:hermes"
 
 
-def _spec_for(image, provider=ANTHROPIC_PROVIDER):
-    # Hermes resolves Anthropic (pi-neop-runtime model.ts), so the provider host is api.anthropic.com.
+def _spec_for(image, provider=ANTHROPIC_PROVIDER, env=("ANTHROPIC_API_KEY", "PALACE_SIGNING_KEY_REF")):
     return build_jail_spec(SEAT, image, palace_mcp_url=URL,
                            workdir_mount="/var/seats/palace1/aria",
-                           env_passthrough=["ANTHROPIC_API_KEY", "PALACE_SIGNING_KEY_REF"],
-                           provider=provider)
+                           env_passthrough=list(env), provider=provider)
 
 
 def test_hermes_image_gets_identical_lockdown_and_egress():
+    # Same provider on both images → the ONLY difference is the image name; the boundary is byte-identical.
     jcode = _spec_for(JCODE_IMAGE)
     hermes = _spec_for(HERMES_IMAGE)
-    # The ONLY difference between the two jails is the image name…
     assert jcode.image == JCODE_IMAGE and hermes.image == HERMES_IMAGE
-    # …everything that constitutes the isolation boundary is byte-identical.
     assert hermes.docker_args == jcode.docker_args            # same --read-only/--cap-drop/--no-new-privileges/…
     assert hermes.egress_allowlist == jcode.egress_allowlist  # same {palace, provider} default-DROP boundary
     assert hermes.network_name == jcode.network_name
@@ -134,12 +144,24 @@ def test_hermes_image_gets_identical_lockdown_and_egress():
 
 
 def test_hermes_jail_is_locked_and_egress_confined():
+    # Anthropic-direct is a VALID Hermes option (§DELTA-4) — assert its boundary is exactly palace + anthropic.
     hermes = _spec_for(HERMES_IMAGE)
     args = hermes.docker_args
     for flag in ("--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges"):
         assert flag in args, f"hermes jail missing lockdown flag {flag!r}"
-    # egress confined to ONLY the palace + the Anthropic host — nothing wider.
     assert hermes.egress_allowlist == ("api.anthropic.com", "small-dogfish-433.convex.site")
+
+
+def test_hermes_bedrock_jail_allows_the_decided_model_path():
+    # Decision 2 is the SEALED-SPINE DEFAULT: the Hermes jail must permit the in-VPC Bedrock endpoint, or it
+    # blocks the model path at generate time (the landmine — would present as "Nova won't answer", box-only).
+    hermes = _spec_for(HERMES_IMAGE, provider=BEDROCK_PROVIDER,
+                       env=("AWS_BEARER_TOKEN_BEDROCK", "PALACE_SIGNING_KEY_REF"))
+    for flag in ("--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges"):
+        assert flag in hermes.docker_args, f"hermes-bedrock jail missing lockdown flag {flag!r}"
+    # egress confined to ONLY the palace + the Bedrock endpoint — the lockdown is unchanged, only the host differs.
+    assert hermes.egress_allowlist == (BEDROCK_EGRESS_HOST, "small-dogfish-433.convex.site")
+    assert set(hermes.egress_allowlist) - {BEDROCK_EGRESS_HOST, "small-dogfish-433.convex.site"} == set()
 
 
 def test_hermes_jail_failcloses_on_blank_scope():

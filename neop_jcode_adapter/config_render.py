@@ -44,10 +44,23 @@ OPENROUTER_PROVIDER = "openrouter"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_API_KEY_ENV = "OPENROUTER_API_KEY"
 OPENROUTER_DEFAULT_MODEL = "anthropic/claude-3.5-haiku"
+
+# Bedrock (deploy-topology Decision 2): the Hermes runtime's SEALED-SPINE model path. The provider id
+# matches pi-ai's KnownProvider + pi-neop-runtime's ModelBroker (`amazon-bedrock`), NOT a jcode-config
+# provider — Hermes is configured by env, so `render()` below still whitelists only anthropic-api|openrouter
+# (this constant is for the EGRESS map ONLY, which is runtime-agnostic). The egress host is the region-pinned
+# Bedrock runtime endpoint; in-VPC it resolves via the PrivateLink interface endpoint (endpoints.tf:19,65,
+# `private_dns_enabled = true`), so the allowlist entry is the STANDARD regional hostname — the box firewall
+# must permit that resolution path (host-in-map ≠ connection-succeeds; the box proof confirms the call).
+BEDROCK_PROVIDER = "amazon-bedrock"
+BEDROCK_REGION = "ap-south-1"  # the spine region (matches ModelBroker's pin + endpoints.tf); us-east-1 403s
+BEDROCK_EGRESS_HOST = f"bedrock-runtime.{BEDROCK_REGION}.amazonaws.com"
+
 # Egress hosts the jail must allow per provider (consumed by isolation.IsolationUnit.egress_allowlist).
 PROVIDER_EGRESS_HOST = {
     ANTHROPIC_PROVIDER: "api.anthropic.com",
     OPENROUTER_PROVIDER: "openrouter.ai",
+    BEDROCK_PROVIDER: BEDROCK_EGRESS_HOST,  # Decision 2 — else the jail blocks the sealed-spine model path
 }
 
 # safety surfaces → the concrete jcode built-in tool names whose denial they map to.

@@ -21,7 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from neop_jcode_adapter.palace_mcp_shim import (
     PalaceShim, ScopeNotConfigured, ScopeSpoofRejected, ToolRejected, RESERVED_IDENTITIES)
 from neop_jcode_adapter.isolation import build_jail_spec, egress_allowlist
-from neop_jcode_adapter.config_render import ANTHROPIC_PROVIDER, OPENROUTER_PROVIDER
+from neop_jcode_adapter.config_render import (
+    ANTHROPIC_PROVIDER, OPENROUTER_PROVIDER, BEDROCK_PROVIDER, BEDROCK_EGRESS_HOST)
 
 PAL = "pal_test"
 SEAT = "aria"
@@ -163,9 +164,13 @@ def test_jail_refuses_secret_values_in_env_passthrough(leak):
 
 
 def test_egress_allowlist_is_exactly_palace_plus_model_host():
-    """The jail may reach ONLY the palace + the model host — nothing else. Any third host = a finding."""
+    """The jail may reach ONLY the palace + the model host — nothing else. Any third host = a finding.
+    Covers the Decision-2 Bedrock path too: the sealed-spine model host is permitted, and NOTHING wider —
+    exactly two hosts, no public AWS/metadata surface leaking in via the new provider entry."""
     assert set(egress_allowlist(URL, ANTHROPIC_PROVIDER)) == {"api.anthropic.com", "small-dogfish-433.convex.site"}
     assert set(egress_allowlist(URL, OPENROUTER_PROVIDER)) == {"openrouter.ai", "small-dogfish-433.convex.site"}
+    assert set(egress_allowlist(URL, BEDROCK_PROVIDER)) == {BEDROCK_EGRESS_HOST, "small-dogfish-433.convex.site"}
+    assert len(egress_allowlist(URL, BEDROCK_PROVIDER)) == 2  # exactly palace + model, never a third host
 
 
 @pytest.mark.parametrize("bad_url", ["", "   ", "not a url", "no-scheme-host"])
