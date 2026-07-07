@@ -22,12 +22,12 @@ path and corrects two now-stale status lines. `✅⟨S07⟩` = verified at file:
 2. **Deploy-topology DECIDED: Bedrock-Nova-in-VPC** (sealed spine, no NAT; Fork 1 = provisioning). PR **#94**
    merged. `deploy-topology-design.md`. The single model-egress finding surfaced at three layers (runtime never
    reached a model · wrapper had no model path · historical write-quarantine) — one root cause, one fix.
-3. **The model path is now a specified offline build, registry-verified** (`modelbroker-bedrock-provider-design.md`;
-   PR **#95**): `pi-neop-runtime/src/brokers/model.ts` gets provider **`"amazon-bedrock"`** (pi-ai `KnownProvider`),
-   bearer **`AWS_BEARER_TOKEN_BEDROCK`**, region **`ap-south-1`**, model **`apac.amazon.nova-lite-v1:0`** (Converse/
-   Nova). **NOT yet implemented** — `PROVIDER_KEY_ENV` still holds only anthropic/openrouter (`model.ts:37-40`).
-   `✅⟨S07⟩` This is the **~10-line change** that is the last offline model-side piece. One `[BOX]` question left:
-   does pi-ai's `region` map bare→`apac.*`, or must the profile id be passed directly.
+3. **The model path is IMPLEMENTED** (`mansi118/pi-neop-runtime#8`; design `modelbroker-bedrock-provider-design.md`,
+   PR **#95**): `src/brokers/model.ts` gains provider **`"amazon-bedrock"`**, bearer **`AWS_BEARER_TOKEN_BEDROCK`**,
+   region pin **`ap-south-1`**, model **`apac.amazon.nova-lite-v1:0`** (Converse/Nova). `✅⟨S07⟩` 6 new offline
+   tests, 84/84 green, `tsc` clean, fail-closed on blank bearer. **The box-verify's direction is resolved at the
+   pi-ai source** (no bare→`apac.*` auto-map; `model.id` sent verbatim → the broker stamps the profile). The last
+   model-side piece is now `[BOX]`-only: does the stamped profile + an ap-south-1 token **generate in-VPC**.
 4. **Reconciles Phase-1's "set the model key":** it is no longer Anthropic-direct-only. Two live options, both real
    — **Anthropic-direct** OR **Bedrock-Nova-in-VPC (ap-south-1 bearer)**, the sealed-spine path the wrapper build
    targets. `ADR-llm` holds: **provider is orthogonal to runtime** (§SETTLED Premise 4). *(us-east-1 token 403s
@@ -40,7 +40,9 @@ path and corrects two now-stale status lines. `✅⟨S07⟩` = verified at file:
    merged** this arc; **Wire-B DECIDED**: nc-channels forwards `raw` to the Hermes seat over HTTP
    (`ADR-wire-b-forwarding.md`), not bridge-ported-into-Hermes.
 
-⇒ **Next offline action:** implement the Bedrock provider (delta 3) + unit-test. Then Phase 1 is `[BOX]`/`[U]`.
+⇒ **Bedrock provider done (delta 3, #8).** The model-side of Phase 1 is now code-complete; what's left is
+GAP-1 (port `memory.ts` live retrieval — offline) then all `[BOX]`/`[U]`: mint ap-south-1 bearer → in-VPC
+generate → GAP-1/GAP-2 live proofs → T9. **Next offline action: GAP-1** (the `/mcp` contract port into `memory.ts`).
 
 ---
 
