@@ -141,6 +141,41 @@ grantable on this account:
 proved the account *can* generate (my user did), but the *task* cannot as configured, and ML says Bedrock is
 not invokable for this path — so treat (i) as unavailable unless ML confirms the IAM/access can be granted.
 
+### RESOLUTION (2026-07-07) — the mechanism is PROVEN; this is Fork 1 (provisioning), not a hard block
+Pulled the inline-Anthropic thread → it dead-ends (empty key + needs internet). But it led to
+`Mempalace_NEOS/convex/lib/bedrockLlm.ts`, which documents the real in-VPC generation path and **explains the
+old write-quarantine finding**:
+- **Write-quarantine = Gemini-unreachable.** bedrockLlm.ts header: the no-NAT spine can't reach Gemini
+  (`generativelanguage.googleapis.com`, no VPC endpoint) → *"ingestion threw 'extraction_failed: fetch failed'
+  and every write quarantined"* (proven live 2026-06-29). Same no-NAT root cause, one layer down — not a
+  spine bug. Bedrock Nova was built as the in-VPC replacement.
+- **The generation MECHANISM (what the wrapper needs), fully specified:**
+  - auth = **`AWS_BEARER_TOKEN_BEDROCK`** bearer token (lives in the **Convex env** via `convex env set` — a
+    config plane the terraform can't see, which is why `iam.tf:55` embed-only wasn't a contradiction: the
+    Nova path never used the task IAM).
+  - endpoint = `bedrock-runtime.ap-south-1.amazonaws.com/model/apac.amazon.nova-lite-v1:0/invoke` via the
+    **existing bedrock-runtime PrivateLink** (the Titan embedder's path, `lib/qwen.ts`).
+  - model = **`apac.amazon.nova-lite-v1:0`** (APAC inference profile; bare `amazon.nova-*` rejects on-demand).
+  - **verified in-VPC** per the code ("a bearer-token Nova invoke returns cleanly"), corroborated independently
+    by a probe (`apac.amazon.nova-lite-v1:0` → "OK").
+- **⇒ Decision 2 = Bedrock-Nova-in-VPC, sealed spine, no NAT. Fork 1 (fixable).** The account is NOT
+  hard-blocked on generation (only Anthropic-on-Bedrock is). Reconciles ML's "not invokable" (true for the
+  *wrapper task* — unprovisioned) with ADR-llm's "Nova live" (true for *Convex* — via the bearer path).
+
+**The two remaining work items (scopeable against a proven path):**
+1. **Provision the wrapper task:** give it `AWS_BEARER_TOKEN_BEDROCK` (mint/share the Convex bearer credential)
+   + confirm its SG reaches the `bedrock-runtime` VPC endpoint. Infra work.
+2. **`ModelBroker` Bedrock provider** in `pi-neop-runtime`: a `bedrock` provider that POSTs to the
+   bedrock-runtime `/model/<profile>/invoke` with the bearer token — `bedrockLlm.ts` is the reference impl
+   (same endpoint, auth, Nova body). Code work.
+
+**The one functional box-verify that remains** (narrower than an operator call): **is `AWS_BEARER_TOKEN_BEDROCK`
+actually set in the deployed Convex env, and does a real extraction succeed now** (i.e., is the quarantine fix
+live)? Convex logs show only `embedding` activity (no extraction lines) — ambiguous (Convex fn logs may not
+surface in ECS stdout), so confirm via `convex env` + a test write. If yes, the mechanism is fully live and
+provisioning the wrapper reuses a working path; if no, the same fix (set the token) lights both extraction
+AND the wrapper.
+
 ## Net
 The wrapper is pinned to the spine VPC (internal palace). The rest is two decisions driven by the no-NAT
 constraint: **(1) bridge on the matrix box** (Synapse=localhost, one authed hop to the wrapper) — recommended
