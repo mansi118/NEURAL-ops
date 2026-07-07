@@ -56,7 +56,15 @@ them up in sequence, and each has a different owner and a different proof.
   **Recommendation: B-fwd.** It keeps the proven Python AS transport (Wire A) as-is, makes the Python↔Node
   seam an explicit network call (testable, jailable), and matches "jcode/Hermes is configured, not forked."
   Under B-fwd, `reflect=False` becomes "POST raw to the Hermes seat endpoint, stream the reply back" —
-  a small, well-defined change to `serve()`, not a rewrite. **Decide this before building Bar 1b.**
+  a small, well-defined change to `serve()`, not a rewrite. **DECIDED: B-fwd** (ADR-wire-b-forwarding).
+  The tell: B-port would be **re-forking a runtime the ADR already said not to fork** ("Hermes is
+  configured, never forked").
+- **⚠️ BANK for Bar 1b — the forwarding seam is a TRUST boundary, not just a network hop.** B-fwd turns the
+  Python↔Node coupling into an explicit HTTP call — which means it inherits the same fail-closed posture as
+  every other seam. The bridge→Hermes call **must be authenticated + scope-carrying** (the seat/scope baked
+  and signed, like the palace shim), **NOT** an unauthenticated `localhost` call that anything co-resident on
+  the box can hit. This is not a Bar 1a concern (reflect has no runtime hop), but the seam must be born
+  fail-closed when Bar 1b builds it — do not ship a naked localhost forward.
 - **State:** BLOCKED on M1b (Hermes checkout + GAP-1/GAP-2). This is the gap between Bar 1a and Bar 1b.
 
 ### WIRE C — the memory spine  (runtime ↔ palace /mcp)
