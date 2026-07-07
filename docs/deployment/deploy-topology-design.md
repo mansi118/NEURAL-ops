@@ -113,26 +113,33 @@ Ran the low-risk read before deciding. It collapsed the fork — and surfaced a 
    is literally true: **the live-model path was never built** — not a regression, an always-future item now
    coming due. This is the first time a real model path gets built.
 
-3. **Bedrock catalog is reachable; generation models are present.** `list-foundation-models` returns
-   `anthropic.claude-opus-4-8`, `claude-haiku-4-5`, and the Nova family (TEXT out). Nova generative is
-   **T0-verified in-VPC** (CLAUDE.md, serves ingestion extraction). **Catalog-listed ≠ invoke-granted**,
-   though — Anthropic-on-Bedrock was gated (use-case form); the listing doesn't prove invoke access.
+3. **Bedrock GENERATION is NOT invokable by the task (corrected — I over-read the first probe).** A test
+   invoke of `apac.amazon.nova-lite-v1:0` returned `"OK"` — BUT that was as the dev-box IAM user
+   `mansi-synlex` against the **PUBLIC** Bedrock endpoint, NOT the task role in-VPC. It proves account/user
+   generation access exists; it does **not** prove the operative path. The operative path is BLOCKED:
+   **the task's Bedrock IAM policy is scoped to `amazon.titan-embed-text-v2:0` ONLY** (`iam.tf:50-56`,
+   `sid=BedrockInvokeEmbeddings`) — the runtime/wrapper task **cannot invoke any generation model.** And the
+   in-VPC `bedrock-runtime` PrivateLink generation reachability is unverified. `responds ≠ the-operative-thing`:
+   "my user invoked Nova via public Bedrock" is NOT "the task can invoke Nova in-VPC."
 
-### ⇒ Decision 2 is FORCED (not a free choice): **Bedrock-in-VPC.**
-- **OpenRouter is ruled out.** It never worked, the key isn't set, and enabling it means `enable_nat_gateway=
-  true` — **punching an internet hole in the sealed spine**, fighting the entire GAP-2 jail + `endpoints.tf`
-  no-internet posture. Building containment and opening the VPC to the internet in the same move is self-defeating.
-- **Bedrock-in-VPC** (via the existing `bedrock-runtime` PrivateLink the Titan embedder already uses) keeps
-  the spine sealed and reuses a proven path. **Cost:** `pi-neop-runtime`'s `ModelBroker` has no Bedrock
-  provider (`PROVIDER_KEY_ENV` = `{anthropic, openrouter}`) → **bounded code work to add a `bedrock` provider**
-  (Nova, or Claude-on-Bedrock if invoke-access is confirmed). "Bounded code to keep the spine sealed" beats
-  "open the sealed spine to the internet to avoid writing a provider."
+### ⇒ Decision 2 is NOT resolved — BOTH model paths are currently blocked (the fork changed shape)
+This is the "if Bedrock generation is also blocked, the fork is genuinely different" case. Today, the wrapper
+has **no working model path**:
+- **OpenRouter** — unreachable (no-NAT); enabling it needs `enable_nat_gateway=true` = an internet hole in the
+  sealed spine (fights GAP-2 + `endpoints.tf`).
+- **Bedrock generation** — the task IAM forbids it (embed-only), AND in-VPC generation reachability is unproven.
 
-### New box-verify at deploy (the one thing the read couldn't settle)
-**Does the in-VPC `bedrock-runtime` endpoint actually INVOKE** — reconfirm Nova generation, and **test whether
-Claude-on-Bedrock is now invokable** on this account (the catalog lists it; CLAUDE.md said gated — may have
-changed). A single test-invoke from in-VPC (CodeBuild) settles it and picks the wrapper's model. If Nova only,
-the wrapper uses Nova; if Claude-on-Bedrock invokes, prefer it for a NEop.
+So the model path is genuinely **unbuilt AND blocked both ways.** The real options, pending what's actually
+grantable on this account:
+- **(i) Enable Bedrock generation for the task** — widen the task IAM to `InvokeModel` on a generation model
+  (Nova inference profile), confirm the account model-access grant covers it, AND box-verify the in-VPC
+  endpoint routes generation. If all three hold, this keeps the spine sealed (preferred). **Blocked if** any
+  of IAM/account-grant/in-VPC-generation is not available — which the operator (ML) has indicated it is not.
+- **(ii) NAT for OpenRouter** — internet egress on the jailed spine (posture cost).
+- **(iii) A different in-VPC-reachable model host.**
+**This is an ML/operator decision + capability question, not one the design can settle alone.** The read
+proved the account *can* generate (my user did), but the *task* cannot as configured, and ML says Bedrock is
+not invokable for this path — so treat (i) as unavailable unless ML confirms the IAM/access can be granted.
 
 ## Net
 The wrapper is pinned to the spine VPC (internal palace). The rest is two decisions driven by the no-NAT
