@@ -65,10 +65,28 @@ queries it two ways:
 
 **Honest scope (name it):** this tool proves the **palace/embedder ranks** (via the Python `runtime.memory`
 broker — the shared substrate). Hermes's `palaceClient.ts` calling `palace_search` correctly is **unit-proven**
-(16 tests, scope-baked/fail-closed). So GAP-1 = *palace-ranks (this proof)* ∧ *palaceClient-contract (units)*.
-The belt-and-suspenders is a **Hermes-native retrieve** of the same canary through `pi-neop-runtime`'s broker
-(no `nrt probe-memory` exists yet — a cheap symmetric follow-on to `probe-model` if you want the composition
-proven end-to-end rather than inferred). Not blocking; flagged so the inference is explicit, not hidden.
+(16 tests, scope-baked/fail-closed). So B1 = *palace-ranks (this proof)* ∧ *palaceClient-contract (units)*.
+
+### Proof B2 — Hermes composition  (`palace ranks ≠ Hermes retrieves`)
+**Tool:** `nrt probe-memory` (pi-neop-runtime; `#8`) — the memory-side twin of `probe-model`. Retrieves the
+**same oblique canary** end-to-end through pi-neop-runtime's own `MemoryBroker`/`palaceClient`, so the Hermes
+composition is *proven*, not inferred.
+```
+PALACE_MCP_URL=<…/mcp>  PALACE_ID=<tenant>  NEOP_ID=<the permissioned canary seat>  nrt probe-memory
+# defaults the query to the oblique canary "where does the team regroup after an outage?"
+```
+| Result | Meaning |
+|---|---|
+| `PASS  Proof B (composition) — Hermes RETRIEVES…` + a rank-1 chunk | **GREEN** — the composition works; eyeball rank-1 for the canary. |
+| `FAIL retrieval returned []` | graceful-empty = HARD FAIL. **Cross-check B1:** B1 green + this empty ⇒ the **Hermes composition** is the fault; both empty ⇒ the palace/write path. |
+| `FAIL retrieve — ACL-DENIED (403)` | the seat isn't permissioned — the **seed:access** ML gate, not a wiring bug. |
+| `FAIL … SCOPE / EGRESS-DNS / PALACE-ERROR` | scope blank/reserved · can't reach `/mcp` · Convex 5xx — each named + attributable. |
+
+**Sequencing (non-blocking):** run **B1 in the box-verify NOW** (it's the highest-information read, gated only
+on the bearer mint). **B2 (`probe-memory`) is a strengthening, not a prerequisite** — land it so the memory
+composition is proven *before T9*, not before the box-verify. Its standing value: if a live turn later has a
+memory failure, B2 is the instrument that says *palace (B1-green) vs Hermes-path* — the attribution you'd
+otherwise lack. **Green = MEMORY RANKS end-to-end through Hermes.**
 
 ---
 
