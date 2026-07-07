@@ -4,6 +4,19 @@
 > **Bedrock (Nova) provider**, so the wrapper generates in-VPC over the sealed spine (no NAT). Scopeable
 > today because the mechanism is proven; the deployed-live + region-matched-token confirmations are box-verifies.
 
+## ✅ IMPLEMENTED — 2026-07-07 (`mansi118/pi-neop-runtime#8`)
+Landed as a faithful ~40-line wiring in `src/brokers/model.ts` (+6 offline tests, 84/84 green, `tsc` clean).
+**The one open box-verify's _direction_ is now resolved at the SOURCE level** (traced pi-ai dist):
+- pi-ai sends `model.id` **verbatim** as the Converse `modelId` (`amazon-bedrock.js:98`) — there is **NO**
+  region→`apac.*` derivation. And `getModel` returns `undefined` for off-catalog ids (registry holds only bare
+  nova ids). ⇒ the profile **must be stamped onto `model.id`**: fetch the bare catalog `Model`, set
+  `model.id = "apac.amazon.nova-lite-v1:0"`.
+- bearer **and** region are read from env by pi-ai itself (`bearerToken || AWS_BEARER_TOKEN_BEDROCK`;
+  `region || AWS_REGION || AWS_DEFAULT_REGION`) ⇒ `getApiKey` is moot (delta #2 confirmed at source); the
+  broker **pins `ap-south-1`** instead (the token is region-scoped).
+**What remains box-side** is narrowed to a single live fact: does the stamped `apac.*` profile + an
+ap-south-1 bearer actually **generate in-VPC**. resolves ≠ generates.
+
 ## Why this is a small, faithful change (not a from-scratch integration)
 - **pi-ai already supports Bedrock with bearer-token auth + Nova.** Verified in its dist: `bedrock` (390×),
   `AWS_BEARER_TOKEN_BEDROCK` (3×), `converse` (90×), `nova`/`amazon.` refs. So Bedrock-Nova can be a real
@@ -35,6 +48,22 @@ const DEFAULT_MODEL = {
 - **In-VPC networking is DNS, not config:** in the spine, `bedrock-runtime.ap-south-1.amazonaws.com` resolves
   to the PrivateLink via the `endpoints.tf` private-DNS override — so no `baseUrl` override; the default
   hostname reaches the endpoint (same as `bedrockLlm.ts`).
+
+## REGISTRY VERIFIED (2026-07-07) — deltas #1/#2/#4 resolved; only a bare-vs-profile box-verify remains
+Traced pi-ai's dist:
+- **Provider key = `"amazon-bedrock"`** (pi-ai `KnownProvider` type), NOT `"bedrock"`. So
+  `registryGetModel("amazon-bedrock" as any, <id> as any)` (the broker already casts `as any`).
+- **Bearer (delta #2 resolved):** `BedrockOptions.bearerToken` — *"When set, bypasses SigV4 and sends
+  Authorization: Bearer <token>. Set via `AWS_BEARER_TOKEN_BEDROCK` env var."* pi-ai reads the exact env; the
+  bearer flows without `getApiKey` (document that asymmetry — `getApiKey` is moot for this provider).
+- **Region (delta #3):** `BedrockOptions.region?` exists → set `ap-south-1`.
+- **Nova format (delta #4 resolved):** streams via `bedrock-converse-stream` (the Converse API) → Nova-native.
+- **Model ids:** pi-ai's registry knows `amazon.nova-lite-v1:0` / `nova-micro` / `nova-pro` / `nova-2-lite`
+  (**bare** ids). **THE ONE REMAINING NUANCE / BOX-VERIFY:** on-demand invoke needs the **`apac.*` inference
+  profile** (bare `amazon.nova-*` rejects on-demand — proven by `bedrockLlm.ts` + probe). So either pi-ai's
+  `region` option maps the bare id → the regional profile internally, OR pass `apac.amazon.nova-lite-v1:0`
+  directly (the `as any` cast allows it). **Box-verify which form pi-ai accepts + resolves in-VPC** — this is
+  now the *only* open code question; everything else is settled.
 
 ## THE DELTAS FROM THE REFERENCE — read these closely (a faithful port's risk lives here)
 1. **pi-ai's exact provider-key + model-id form.** Confirm `registryGetModel("bedrock",
