@@ -42,3 +42,18 @@ handshake — not completable offline by definition.
 The gaps are **box-gated + iterative + have unresolved runtime questions** — they cannot be "completed" from a
 dev box, and authoring the ALB/serve() before Q1/Q2 risks building the wrong thing (over-scoped) or a stranded
 artifact. The completion is a **focused box session that traces first, then builds the minimal path.**
+
+---
+## ANSWERS — traced 2026-07-07 (this changes the plan)
+- **Q1 = core.py RAISES on live.** `ModelBroker` (runtime/core.py:165) is unit-only: line 171 raises
+  `"mode '<m>' not wired (unit only)"`, line 195 `"live tools not wired"`, memory ops (226-300) support only
+  unit/integration. So `handle(mode="live") → dispatch("live") → ModelBroker("live")` **raises**. The echo
+  CANNOT run live on the Python runtime. (Unit mode works only for the recorded cassette `echo_hello`.)
+- **Q2 = echo needs NO palace.** `agents/echo/tools.json=["echo_tool"]`, mock `{"$reflect_field":"text"}` —
+  pure reflection, no /mcp. #84's ALB/cross-VPC is over-scoped for Bar 1; do NOT build it for the echo.
+- **⇒ FINDING: Bar 1 (a real NEop echo) is gated on the live Hermes runtime (M1b / pi-neop-runtime), NOT just
+  the bridge** — core.py raises on live. Same runtime dependency as Bar 2, minus the palace.
+- **Two sub-milestones:** **Bar 1a** = transport proven via a HARDCODED reflection in `serve()` (bridge only,
+  no runtime) — achievable next. **Bar 1b** = real NEop echo via handle→dispatch — needs M1b.
+- **Corrected next move:** build the bridge for **Bar 1a** (hardcoded reflect, proves Element↔Synapse↔nc-channels
+  round-trip), and treat a real-NEop reply (1b/Bar 2) as gated on standing up `pi-neop-runtime` (M1b: GAP-1/GAP-2).
