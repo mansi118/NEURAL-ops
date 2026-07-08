@@ -294,6 +294,75 @@ variable "nc_channels_port" {
   type        = number
   default     = 8010
 }
+
+# ── Hermes seat wrapper (wrapper.tf) — the NEop-executing service in the spine VPC (Decision 2). ──────────
+variable "enable_wrapper" {
+  description = <<-EOT
+    Bring up the Hermes seat wrapper (pi-neop-runtime, /seat/turn) in the spine VPC. HELD at false — same
+    posture as enable_nc_channels: present on main, inert until a conscious flip. The seat refuses to start
+    without FORWARD_TOKEN and refuses to wire live brokers without T9 ack, so deploying before those are
+    provisioned + the inbound reach is decided (no matrix↔spine peering exists) is a refuse-then-restart task.
+    Flip ONLY in the deploy window, with the bearer + FORWARD_TOKEN provisioned and wrapper_ingress_cidrs set.
+    Requires the no-NAT endpoints (enable_nat_gateway=false → aws_security_group.vpce[0]).
+  EOT
+  type        = bool
+  default     = false
+}
+variable "wrapper_t9_ack" {
+  description = <<-EOT
+    Sets NEOP_T9_ACK=yes on the wrapper — i.e. CROSSES T9 (the first live NEop turn). HELD at false: default
+    means the deployed wrapper boots and REFUSES to serve live, so the T9 gate holds even against an accidental
+    deploy. Flipping true is the conscious first-live-turn crossing (plan-first, in the T9 window), distinct
+    from merely deploying the service (enable_wrapper). STOP-AND-ASK before flipping.
+  EOT
+  type        = bool
+  default     = false
+}
+variable "wrapper_image" {
+  description = "The pi-neop-runtime GAP-2 jail image (ECR, pulled in-VPC via the ECR endpoint). Set at box-build."
+  type        = string
+  default     = "PLACEHOLDER.dkr.ecr.ap-south-1.amazonaws.com/pi-neop-runtime:latest"
+}
+variable "wrapper_port" {
+  description = "Port the wrapper serves /seat/turn on (nrt serve-seat SEAT_PORT)."
+  type        = number
+  default     = 8090
+}
+variable "wrapper_model_id" {
+  description = "Bedrock model id for the wrapper (parameterized — Claude-on-Bedrock becomes a config change if un-gated)."
+  type        = string
+  default     = "apac.amazon.nova-lite-v1:0" # APAC inference profile; bare amazon.nova-* rejects on-demand
+}
+variable "wrapper_palace_mcp_url" {
+  description = "The palace /mcp endpoint the wrapper calls — the IN-VPC Cloud Map Convex (e.g. http://convex.<ns>.local:3211/mcp), NOT the external .convex.site (no NAT to reach it)."
+  type        = string
+  default     = ""
+}
+variable "wrapper_palace_id" {
+  description = "Wrapper scope: palaceId (tenant). Baked from env, never from the request payload."
+  type        = string
+  default     = ""
+}
+variable "wrapper_neop_id" {
+  description = "Wrapper scope: neopId (the seat). Baked from env, never from payload. Must NOT be a reserved identity (_admin/_system)."
+  type        = string
+  default     = ""
+}
+variable "wrapper_neop_path" {
+  description = "The seat's NEop folder (e.g. agents/recon)."
+  type        = string
+  default     = "agents/recon"
+}
+variable "wrapper_ingress_cidrs" {
+  description = <<-EOT
+    Source CIDR(s) permitted to POST /seat/turn (the bridge, FORWARD_TOKEN-authenticated). DEFAULT [] ⇒ the
+    wrapper is UNREACHABLE (fail-closed). The bridge is on the matrix box (default VPC) and no matrix↔spine
+    peering exists (verified 2026-07-08) — so the inbound reach is an open decision (peering recommended, then
+    set the bridge's source here). Deliberately NOT defaulted to a public/wide source; see wrapper.tf §INBOUND.
+  EOT
+  type        = list(string)
+  default     = []
+}
 variable "synapse_task_cpu" {
   description = "Fargate CPU for Synapse."
   type        = number
