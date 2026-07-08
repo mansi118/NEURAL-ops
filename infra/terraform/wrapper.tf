@@ -15,16 +15,25 @@
 #     task boots and REFUSES to serve live — the T9 gate holds even against an accidental deploy. Flipping it
 #     true is the conscious first-live-turn crossing, plan-first, in the T9 window. Flip both together.
 #
-# COUPLING (intentional, like nc-channels↔synapse): requires the no-NAT endpoints (aws_security_group.vpce[0]
-# only exists when enable_nat_gateway=false). The wrapper's whole model path IS the bedrock-runtime PrivateLink
-# endpoint; a NAT'd spine is a different (rejected) topology.
+# COUPLING — depends on var.wrapper_provider:
+#   - amazon-bedrock (DEFAULT/sealed): requires the no-NAT endpoints (aws_security_group.vpce[0] exists only when
+#     enable_nat_gateway=false). The model path IS the bedrock-runtime PrivateLink endpoint; sealed egress.
+#   - openrouter (opt-in): the INVERSE — requires enable_nat_gateway=true (public gateway needs internet egress),
+#     and un-seals the wrapper's egress (EGRESS #1b). The vpce reference is not evaluated in this mode.
+# Pick ONE consistently: bedrock↔no-NAT (sealed) OR openrouter↔NAT (un-sealed). A mismatch (openrouter + no-NAT)
+# deploys a wrapper that can't reach its model.
 
 # ── secrets: created empty, values set post-apply via `aws secretsmanager put-secret-value` (never in TF
 #    state — same posture as secrets.tf / nc-channels.tf). The wrapper CODE refuses to start on a blank
 #    FORWARD_TOKEN or blank AWS_BEARER_TOKEN_BEDROCK, so wiring them as REQUIRED secrets means a misconfigured
 #    deploy FAILS TO START rather than coming up insecure. Infra and code agree on fail-closed.
+# Provider switch (var.wrapper_provider): "amazon-bedrock" (DEFAULT — sealed spine, no NAT) or "openrouter"
+# (a PUBLIC gateway — requires enable_nat_gateway=true and UN-SEALS the wrapper's egress; see EGRESS below).
+# The runtime code supports both (pi-neop-runtime ModelBroker #8); this only wires the deploy for each.
 locals {
-  wrapper_secret_keys = ["FORWARD_TOKEN", "AWS_BEARER_TOKEN_BEDROCK"]
+  wrapper_is_openrouter = var.wrapper_provider == "openrouter"
+  wrapper_model_secret  = local.wrapper_is_openrouter ? "OPENROUTER_API_KEY" : "AWS_BEARER_TOKEN_BEDROCK"
+  wrapper_secret_keys   = ["FORWARD_TOKEN", local.wrapper_model_secret]
 }
 
 resource "aws_secretsmanager_secret" "wrapper" {
@@ -62,15 +71,35 @@ resource "aws_security_group" "wrapper" {
     }
   }
 
-  # EGRESS #1 — MODEL: bedrock-runtime via the interface VPC endpoint (443). The vpce SG fronts the
-  # bedrock-runtime PrivateLink endpoint (endpoints.tf) — and also secretsmanager/ecr/logs, which the task
-  # legitimately needs at launch (secret injection, image pull, logging). Locked to that SG; no internet.
-  egress {
-    description     = "Bedrock-runtime (model) + secretsmanager/ecr/logs — the VPC interface endpoints, 443 only"
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    security_groups = [aws_security_group.vpce[0].id]
+  # EGRESS #1a — MODEL (Bedrock, DEFAULT/SEALED): bedrock-runtime via the interface VPC endpoint (443). The
+  # vpce SG fronts the bedrock-runtime PrivateLink endpoint (endpoints.tf) — and also secretsmanager/ecr/logs,
+  # which the task legitimately needs at launch (secret injection, image pull, logging). Locked to that SG; no
+  # internet. This is the sealed-spine path.
+  dynamic "egress" {
+    for_each = local.wrapper_is_openrouter ? [] : [1]
+    content {
+      description     = "Bedrock-runtime (model) + secretsmanager/ecr/logs — the VPC interface endpoints, 443 only"
+      from_port       = 443
+      to_port         = 443
+      protocol        = "tcp"
+      security_groups = [aws_security_group.vpce[0].id]
+    }
+  }
+
+  # EGRESS #1b — MODEL (OpenRouter, OPT-IN, ⚠️ UN-SEALS THE SPINE): openrouter.ai is a PUBLIC gateway, so this
+  # opens 443 to the internet (0.0.0.0/0). This is the ONE place the sealed-egress posture is deliberately
+  # traded away for simpler provisioning — it REQUIRES enable_nat_gateway=true (no NAT ⇒ unreachable anyway) and
+  # it means the wrapper's egress is NO LONGER the GAP-2 jail allowlist {palace, model}. Chosen only when
+  # var.wrapper_provider="openrouter". Do NOT default to this; it is the fast-dogfood path, not the sealed one.
+  dynamic "egress" {
+    for_each = local.wrapper_is_openrouter ? [1] : []
+    content {
+      description = "OpenRouter (openrouter.ai, PUBLIC) — HTTPS to the internet. UN-SEALED: requires enable_nat_gateway=true"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
 
   # EGRESS #2 — MEMORY: the palace /mcp (CORTEX-PALACE, in-VPC Convex, Cloud Map convex.<ns>:3211). Locked to
@@ -140,9 +169,9 @@ resource "aws_ecs_task_definition" "wrapper" {
       # (wrapper.ts rejects M_SCOPE_SPOOF). NEOP_T9_ACK is added ONLY when wrapper_t9_ack=true — the crossing.
       environment = concat(
         [
-          { name = "NEOP_PROVIDER", value = "amazon-bedrock" }, # Decision 2 — sealed-spine model
-          { name = "NRT_MODEL", value = var.wrapper_model_id }, # apac.amazon.nova-lite-v1:0 (parameterized)
-          { name = "AWS_REGION", value = var.region },          # ap-south-1 (broker also pins it; explicit here)
+          { name = "NEOP_PROVIDER", value = var.wrapper_provider },                                                          # amazon-bedrock (sealed) | openrouter (un-sealed)
+          { name = "NRT_MODEL", value = local.wrapper_is_openrouter ? var.wrapper_openrouter_model : var.wrapper_model_id }, # per-provider model id
+          { name = "AWS_REGION", value = var.region },                                                                       # ap-south-1 (broker also pins it; explicit here)
           { name = "SEAT_PORT", value = tostring(var.wrapper_port) },
           { name = "PALACE_MCP_URL", value = var.wrapper_palace_mcp_url }, # in-VPC Cloud Map convex /mcp (internal)
           { name = "PALACE_ID", value = var.wrapper_palace_id },           # scope — from env, never payload
