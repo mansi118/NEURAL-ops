@@ -9,6 +9,15 @@ resource "aws_efs_file_system" "convex" {
   encrypted      = true
   kms_key_id     = aws_kms_key.main.arn
   tags           = { Name = "${local.name}-convex-efs" }
+
+  # The palace's persistent data (the Convex sqlite DB + storage dir) lives on this volume — the single
+  # irreplaceable resource in the spine. prevent_destroy converts any plan that would remove it into a HARD
+  # ERROR rather than a silent deletion, so no apply/destroy can ever take the memory without a deliberate
+  # config change first. This is a meta-argument: it adds NOTHING to any plan (0 add/change/destroy) — pure
+  # defense-in-depth on the data this whole arc proved ranks.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_security_group" "convex" {
