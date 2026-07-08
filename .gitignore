@@ -14,3 +14,7 @@ __pycache__/
 # terraform plan artifacts
 infra/terraform/tf.plan
 *.tfplan
+
+# Never commit downloaded AWS access-key CSVs (credential leak)
+*accessKeys*.csv
+bedrock-dev_accessKeys.csv

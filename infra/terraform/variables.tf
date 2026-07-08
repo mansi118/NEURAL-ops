@@ -328,10 +328,29 @@ variable "wrapper_port" {
   type        = number
   default     = 8090
 }
+variable "wrapper_provider" {
+  description = <<-EOT
+    Model provider for the wrapper: "amazon-bedrock" (DEFAULT — sealed spine, Nova via the in-VPC PrivateLink
+    endpoint + bearer) or "openrouter" (a PUBLIC gateway — simplest provisioning, ONE api key, but ⚠️ UN-SEALS
+    the wrapper's egress: it requires enable_nat_gateway=true and opens 443 to the internet, trading away the
+    GAP-2 sealed-egress posture for speed. Fast-dogfood path, not the sealed one). Runtime supports both (#8).
+  EOT
+  type        = string
+  default     = "amazon-bedrock"
+  validation {
+    condition     = contains(["amazon-bedrock", "openrouter"], var.wrapper_provider)
+    error_message = "wrapper_provider must be amazon-bedrock or openrouter."
+  }
+}
 variable "wrapper_model_id" {
   description = "Bedrock model id for the wrapper (parameterized — Claude-on-Bedrock becomes a config change if un-gated)."
   type        = string
   default     = "apac.amazon.nova-lite-v1:0" # APAC inference profile; bare amazon.nova-* rejects on-demand
+}
+variable "wrapper_openrouter_model" {
+  description = "OpenRouter model id (used when wrapper_provider=openrouter). Provider-prefixed, e.g. anthropic/claude-3.5-haiku."
+  type        = string
+  default     = "anthropic/claude-3.5-haiku"
 }
 variable "wrapper_palace_mcp_url" {
   description = "The palace /mcp endpoint the wrapper calls — the IN-VPC Cloud Map Convex (e.g. http://convex.<ns>.local:3211/mcp), NOT the external .convex.site (no NAT to reach it)."
