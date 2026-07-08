@@ -356,12 +356,39 @@ variable "wrapper_neop_path" {
 variable "wrapper_ingress_cidrs" {
   description = <<-EOT
     Source CIDR(s) permitted to POST /seat/turn (the bridge, FORWARD_TOKEN-authenticated). DEFAULT [] ⇒ the
-    wrapper is UNREACHABLE (fail-closed). The bridge is on the matrix box (default VPC) and no matrix↔spine
-    peering exists (verified 2026-07-08) — so the inbound reach is an open decision (peering recommended, then
-    set the bridge's source here). Deliberately NOT defaulted to a public/wide source; see wrapper.tf §INBOUND.
+    wrapper is UNREACHABLE (fail-closed). §INBOUND is resolved toward PEERING (peering.tf): set this to the
+    matrix/bridge source CIDR when peering is up, so the SG admits the bridge over the peered path. Deliberately
+    NOT defaulted to a public/wide source; the peering gives the route, this gives the scoped SG allowance.
   EOT
   type        = list(string)
   default     = []
+}
+
+# ── matrix↔spine VPC peering (peering.tf) — the wrapper's INBOUND path, §INBOUND resolved toward peering. ──
+variable "enable_matrix_peering" {
+  description = <<-EOT
+    Bring up the matrix-box(default VPC)↔spine VPC peering + routes (peering.tf + the inline spine route in
+    network.tf). HELD at false. The sealed-spine inbound: the bridge reaches the wrapper over the peered
+    INTERNAL path — no public surface. Flip in the deploy window; requires matrix_vpc_id/_cidr/_route_table_id
+    set together (the matrix VPC is a separate EC2 box, not managed here). Same account + region assumed.
+  EOT
+  type        = bool
+  default     = false
+}
+variable "matrix_vpc_id" {
+  description = "The matrix-server box's default VPC id (peering accepter). Required when enable_matrix_peering=true."
+  type        = string
+  default     = ""
+}
+variable "matrix_vpc_cidr" {
+  description = "The matrix VPC's CIDR — the spine's return route destination + the bridge's source for wrapper_ingress_cidrs."
+  type        = string
+  default     = ""
+}
+variable "matrix_route_table_id" {
+  description = "The matrix VPC's route table id, for the matrix→spine return route. Required when enable_matrix_peering=true."
+  type        = string
+  default     = ""
 }
 variable "synapse_task_cpu" {
   description = "Fargate CPU for Synapse."
