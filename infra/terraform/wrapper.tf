@@ -49,8 +49,8 @@ resource "aws_security_group" "wrapper" {
   vpc_id      = aws_vpc.main.id
 
   # INBOUND — the bridge → wrapper /seat/turn hop, authenticated by FORWARD_TOKEN (constant-time, wrapper.ts
-  # authOk). Held EMPTY by default (fail-closed: no source ⇒ unreachable). See §INBOUND below for why this is
-  # a var and not a fixed source: the bridge is on the matrix box (default VPC) and no peering exists yet.
+  # authOk). Held EMPTY by default (fail-closed: no source ⇒ unreachable). Reached over the matrix↔spine
+  # peering (peering.tf, §INBOUND resolved); set this to the matrix/bridge CIDR when peering is up.
   dynamic "ingress" {
     for_each = length(var.wrapper_ingress_cidrs) > 0 ? [1] : []
     content {
@@ -186,15 +186,14 @@ resource "aws_ecs_service" "wrapper" {
   }
 }
 
-# ── §INBOUND (the one open topology decision — NOT resolved here, deliberately) ─────────────────────────────
+# ── §INBOUND — RESOLVED 2026-07-08 toward PEERING (peering.tf). ──────────────────────────────────────────────
 # The bridge (nc_channels, Python) runs on the MATRIX-SERVER EC2 BOX (default VPC), so Synapse stays localhost
-# (Option B). It must reach this wrapper's /seat/turn. Verified 2026-07-08: there is NO matrix↔spine VPC
-# peering. So the reach is an open call, and this file does NOT silently open a public surface to resolve it:
-#   (a) VPC peering matrix↔spine + set var.wrapper_ingress_cidrs to the bridge's source — internal, no public
-#       surface (the sealed-spine-preserving option; recommended), OR
-#   (b) an INTERNAL token-gated ALB + peering (adds a stable endpoint; same peering prerequisite), OR
-#   (c) a PUBLIC token-gated ALB — rejected unless deliberately chosen: it puts a public surface on the
-#       NEop-executing task, gated only by FORWARD_TOKEN. Contradicts the sealed-spine intent; do NOT default here.
-# wrapper_ingress_cidrs defaults to [] ⇒ the wrapper is UNREACHABLE until this is consciously decided. That is
-# the honest held state: the egress lockdown is complete and reviewable; the inbound is a named decision, not a
-# silent public hole. Resolve it in the deploy window (peering is the recommended path), then set the var.
+# (Option B). It reaches this wrapper's /seat/turn over a matrix↔spine VPC PEERING (peering.tf, held on
+# var.enable_matrix_peering) — NOT a public ALB. Rationale (sealed spine): a public token-gated ALB is still a
+# public surface on the NEop-executing task (authenticated ≠ invisible; internet-reachable, FORWARD_TOKEN the
+# only gate). Peering keeps the wrapper unreachable from the internet entirely — symmetric to the egress: no
+# 0.0.0.0/0 outbound here, so no public inbound either. (A public ALB stays a deliberate, non-default option if
+# ever chosen; it is not built and not defaulted.)
+# The two halves: peering.tf gives the ROUTE (both directions); wrapper_ingress_cidrs (set to the matrix/bridge
+# CIDR when peering is up) gives the scoped SG ALLOWANCE. Default [] ⇒ UNREACHABLE until peering + the var are
+# set together in the deploy window. The whole inbound path is now in code (held), so the apply gate has it all.

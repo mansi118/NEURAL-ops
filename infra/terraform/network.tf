@@ -76,6 +76,17 @@ resource "aws_route_table" "private" {
       nat_gateway_id = aws_nat_gateway.main[0].id
     }
   }
+  # Spine → matrix-box return route via the peering (deploy-topology §INBOUND, resolved toward PEERING —
+  # peering.tf). MUST be inline here, NOT a standalone aws_route: this table uses inline routes, and mixing
+  # the two overwrites rules (AWS provider constraint). Gated on enable_matrix_peering (held false), so the
+  # aws_vpc_peering_connection.matrix[0] reference is only evaluated when that peering exists.
+  dynamic "route" {
+    for_each = var.enable_matrix_peering ? [1] : []
+    content {
+      cidr_block                = var.matrix_vpc_cidr
+      vpc_peering_connection_id = aws_vpc_peering_connection.matrix[0].id
+    }
+  }
   tags = { Name = "${local.name}-private-rt" }
 }
 
