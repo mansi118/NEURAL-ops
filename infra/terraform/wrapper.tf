@@ -63,7 +63,7 @@ resource "aws_security_group" "wrapper" {
   dynamic "ingress" {
     for_each = length(var.wrapper_ingress_cidrs) > 0 ? [1] : []
     content {
-      description = "POST /seat/turn from the bridge (FORWARD_TOKEN-authenticated) — source scoped, never 0.0.0.0/0"
+      description = "POST /seat/turn from the bridge (FORWARD_TOKEN-authenticated) - source scoped, never 0.0.0.0/0"
       from_port   = var.wrapper_port
       to_port     = var.wrapper_port
       protocol    = "tcp"
@@ -78,11 +78,26 @@ resource "aws_security_group" "wrapper" {
   dynamic "egress" {
     for_each = local.wrapper_is_openrouter ? [] : [1]
     content {
-      description     = "Bedrock-runtime (model) + secretsmanager/ecr/logs — the VPC interface endpoints, 443 only"
+      description     = "Bedrock-runtime (model) + secretsmanager/ecr/logs - the VPC interface endpoints, 443 only"
       from_port       = 443
       to_port         = 443
       protocol        = "tcp"
       security_groups = [aws_security_group.vpce[0].id]
+    }
+  }
+
+  # EGRESS #1c - S3 GATEWAY endpoint (ECR image LAYERS): the manifest comes via the ecr.dkr interface
+  # endpoint (#1a), but the layer blobs live in S3 and are pulled at LAUNCH via the S3 gateway endpoint (a
+  # prefix-list route, NOT the vpce SG). Without this the task fails CannotPullContainerError. Sealed: the
+  # S3 gateway endpoint is in-VPC/private, never the internet - interface-endpoint egress alone is insufficient.
+  dynamic "egress" {
+    for_each = local.wrapper_is_openrouter ? [] : [1]
+    content {
+      description     = "S3 gateway endpoint (ECR image layers at launch) - prefix list, 443 only"
+      from_port       = 443
+      to_port         = 443
+      protocol        = "tcp"
+      prefix_list_ids = [aws_vpc_endpoint.s3[0].prefix_list_id]
     }
   }
 
@@ -94,7 +109,7 @@ resource "aws_security_group" "wrapper" {
   dynamic "egress" {
     for_each = local.wrapper_is_openrouter ? [1] : []
     content {
-      description = "OpenRouter (openrouter.ai, PUBLIC) — HTTPS to the internet. UN-SEALED: requires enable_nat_gateway=true"
+      description = "OpenRouter (openrouter.ai, PUBLIC) - HTTPS to the internet. UN-SEALED: requires enable_nat_gateway=true"
       from_port   = 443
       to_port     = 443
       protocol    = "tcp"
@@ -105,7 +120,7 @@ resource "aws_security_group" "wrapper" {
   # EGRESS #2 — MEMORY: the palace /mcp (CORTEX-PALACE, in-VPC Convex, Cloud Map convex.<ns>:3211). Locked to
   # the convex SG on its API/site-proxy ports. This is the ranked-memory hop (GAP-1).
   egress {
-    description     = "Palace /mcp (CORTEX-PALACE, in-VPC Convex) — ranked memory, 3210-3211 only"
+    description     = "Palace /mcp (CORTEX-PALACE, in-VPC Convex) - ranked memory, 3210-3211 only"
     from_port       = 3210
     to_port         = 3211
     protocol        = "tcp"
@@ -173,6 +188,9 @@ resource "aws_ecs_task_definition" "wrapper" {
           { name = "NRT_MODEL", value = local.wrapper_is_openrouter ? var.wrapper_openrouter_model : var.wrapper_model_id }, # per-provider model id
           { name = "AWS_REGION", value = var.region },                                                                       # ap-south-1 (broker also pins it; explicit here)
           { name = "SEAT_PORT", value = tostring(var.wrapper_port) },
+          # Bind 0.0.0.0 (not the code default 127.0.0.1) so the bridge reaches /seat/turn over the peering;
+          # the wrapper SG ingress (matrix CIDR:port) + FORWARD_TOKEN are the actual access controls.
+          { name = "SEAT_HOST", value = "0.0.0.0" },
           { name = "PALACE_MCP_URL", value = var.wrapper_palace_mcp_url }, # in-VPC Cloud Map convex /mcp (internal)
           { name = "PALACE_ID", value = var.wrapper_palace_id },           # scope — from env, never payload
           { name = "NEOP_ID", value = var.wrapper_neop_id },               # scope — from env, never payload
