@@ -27,7 +27,13 @@ data "aws_iam_policy_document" "secrets_read" {
   statement {
     sid       = "ReadRuntimeSecrets"
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [for s in aws_secretsmanager_secret.runtime : s.arn]
+    # runtime secrets + the wrapper secrets (empty set unless enable_wrapper, so backward-compatible).
+    # The wrapper's ECS task pulls WRAPPER_FORWARD_TOKEN + the model bearer at launch via THIS exec role;
+    # omitting them is a ResourceInitializationError (AccessDenied) that crash-loops the wrapper.
+    resources = concat(
+      [for s in aws_secretsmanager_secret.runtime : s.arn],
+      [for s in aws_secretsmanager_secret.wrapper : s.arn],
+    )
   }
   statement {
     sid       = "DecryptSecretsCMK"
