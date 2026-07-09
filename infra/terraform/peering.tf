@@ -37,3 +37,24 @@ resource "aws_route" "matrix_to_spine" {
 
 # (The spine → matrix return route is inline on aws_route_table.private in network.tf — it MUST be inline
 #  there, since that table uses inline routes and mixing with a standalone aws_route overwrites rules.)
+
+# ── DURABLE bridge→wrapper wiring (Bar-2 loose-end (b), 2026-07-09). ──────────────────────────────────
+# The wrapper is Cloud-Map registered as seat-wrapper.<project>-<env>.local (wrapper.tf), whose A record
+# auto-follows the ECS task on every redeploy. But the backing Route53 private hosted zone is associated
+# with ONLY the spine VPC, so the bridge (on the matrix box, in the peered matrix VPC) cannot resolve that
+# name — which is why Bar 2 shipped with SEAT_URL pinned to the wrapper's *dynamic* task IP (10.40.53.174),
+# a wire that breaks the instant the wrapper task is replaced.
+#
+# Associating the same hosted zone with the matrix VPC makes seat-wrapper.<project>-<env>.local resolvable
+# from the bridge over the existing peering. Then SEAT_URL becomes a STABLE name and survives wrapper
+# redeploys (Cloud Map updates the A record; the bridge just follows). Both VPCs are same-account/same-region
+# (071126865245 / ap-south-1) → a single association resource, no cross-account authorization dance. The
+# matrix VPC has enableDnsSupport + enableDnsHostnames = true (verified), which PHZ resolution requires.
+#
+# Additive + reversible + no data path touched. Gated on the same enable_matrix_peering flag: it is only
+# meaningful once the route + peering exist, and it tears down cleanly by flipping the flag.
+resource "aws_route53_zone_association" "matrix_wrapper_discovery" {
+  count   = var.enable_matrix_peering ? 1 : 0
+  zone_id = aws_service_discovery_private_dns_namespace.main.hosted_zone
+  vpc_id  = var.matrix_vpc_id
+}
