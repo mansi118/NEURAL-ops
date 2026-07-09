@@ -103,7 +103,12 @@ class ASService:
             return TransactionResult(deduped=True)
         res = TransactionResult()
         for event in transaction.get("events", []):
-            if not ma.is_routable_message(event, as_localparts=self.reg.as_localparts()):
+            # Loop guard: skip non-messages/the AS sender (is_routable_message) AND any sender inside the AS
+            # user namespace — the puppet replies (e.g. @neop_aria) are our OWN traffic; without this the
+            # seat's answer would be re-forwarded to itself in an infinite loop. sender_localpart (neos-bot)
+            # is usually outside the @neop_.* namespace, so both checks are needed.
+            if not ma.is_routable_message(event, as_localparts=self.reg.as_localparts()) \
+                    or _matches_namespace(event.get("sender") or "", self.reg.user_namespace_regex):
                 res.skipped += 1
                 continue
             raw = ma.matrix_message_to_raw(
@@ -129,7 +134,7 @@ class ASService:
             query=query, body=body)
 
     # ---- the live wire (IMPLEMENTED; correctness PROVEN AT THE BOX against real Synapse, never a mock) ----
-    def serve(self, host: str, port: int, *, reflect: bool = True):
+    def serve(self, host: str, port: int, *, reflect: bool = True, puppet_localpart: Optional[str] = None):
         """Start the AS HTTP server: PUT /_matrix/app/v1/transactions/{txnId}.
 
         reflect=True  → **Bar 1a**: a hardcoded echo, NO runtime. core.py raises on live (see
@@ -180,7 +185,8 @@ class ASService:
                             # B-fwd: forward to the Hermes seat wrapper; render its ReplyEnvelope.text (Bar 1b/2).
                             envelope = svc._seat_forward(raw)
                             result = {"stream": [envelope.get("text") or ""]}
-                        send = svc.reply_send(raw.get("conversation_id"), result, "ncq-" + uuid.uuid4().hex)
+                        send = svc.reply_send(raw.get("conversation_id"), result, "ncq-" + uuid.uuid4().hex,
+                                              puppet_localpart=puppet_localpart)
                         svc._cs_api_call(send)
                     except Exception as e:                 # one bad message must not drop the whole txn
                         sys.stderr.write(f"nc-channels: reply failed for {raw.get('msg_id')}: {e}\n")
