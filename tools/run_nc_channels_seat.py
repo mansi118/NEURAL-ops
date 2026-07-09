@@ -62,9 +62,14 @@ def main() -> None:
         seat_url=seat_url, forward_token=forward_token)
     host = os.environ.get("LISTEN_HOST", "127.0.0.1")
     port = int(os.environ.get("LISTEN_PORT", "8010"))
+    # Optional: post the seat's reply as a namespaced puppet (@<puppet>:server) so the answer shows as the
+    # NEop (e.g. neop_aria → "Aria") instead of the AS sender. Must be inside the @neop_.* namespace or
+    # reply_send refuses (M_EXCLUSIVE). Unset → replies come from the AS sender (backward-compatible).
+    puppet = os.environ.get("SEAT_PUPPET_LOCALPART") or None
     sys.stderr.write(
-        f"nc-channels SEAT runner on {host}:{port} (reflect=False) → Hermes {seat_url}, HS {svc.hs_base_url}\n")
-    svc.serve(host, port, reflect=False)
+        f"nc-channels SEAT runner on {host}:{port} (reflect=False) → Hermes {seat_url}, HS {svc.hs_base_url}"
+        f"{', puppet=@'+puppet if puppet else ''}\n")
+    svc.serve(host, port, reflect=False, puppet_localpart=puppet)
 
 
 if __name__ == "__main__":

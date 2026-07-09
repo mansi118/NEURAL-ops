@@ -85,6 +85,18 @@ def test_process_transaction_skips_own_echo():
     assert res.processed == [] and res.skipped == 1
 
 
+def test_process_transaction_skips_puppet_namespace_sender_loop_guard():
+    # A reply posted by a namespaced puppet (e.g. @neop_aria) is the AS's OWN traffic — it must NOT be
+    # re-forwarded to the seat, or the seat's answer loops forever. The sender_localpart guard alone
+    # (@neop) does not cover puppets; the namespace-regex guard must.
+    svc = make_service()
+    res = svc.process_transaction("txnP", {"events": [msg_event(sender="@neop_aria:server")]})
+    assert res.processed == [] and res.skipped == 1
+    # a real human sender (outside the namespace) is still routable
+    res2 = svc.process_transaction("txnH", {"events": [msg_event(sender="@mansi-neop:server")]})
+    assert len(res2.processed) == 1
+
+
 def test_transaction_dedup_is_idempotent():
     svc = make_service()
     first = svc.process_transaction("txnA", {"events": [msg_event()]})
