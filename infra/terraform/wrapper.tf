@@ -195,6 +195,12 @@ resource "aws_ecs_task_definition" "wrapper" {
           { name = "PALACE_ID", value = var.wrapper_palace_id },           # scope — from env, never payload
           { name = "NEOP_ID", value = var.wrapper_neop_id },               # scope — from env, never payload
           { name = "NEOP_PATH", value = var.wrapper_neop_path },           # the seat's NEop folder
+          # Relevance gate for retrieved memory (reply.ts): drop chunks whose palace similarity `score` is
+          # below this before injecting them as context. Measured LIVE 2026-07-09: on-topic ~1.07-1.14,
+          # off-topic "capital of France" = 0.19 (real similarity; the 0.9 seen earlier was the stored
+          # confidence, a seat bug). 1.0 keeps real hits and drops off-topic; verified France → kept=0,
+          # on-topic → kept>=1. 0 = gate off (server NOISE_FLOOR=0.2 only). Tunable here without an image rebuild.
+          { name = "SEAT_MEMORY_MIN_SCORE", value = tostring(var.wrapper_memory_min_score) },
         ],
         var.wrapper_t9_ack ? [{ name = "NEOP_T9_ACK", value = "yes" }] : [] # T9 CROSSING — held false
       )

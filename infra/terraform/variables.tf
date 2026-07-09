@@ -372,6 +372,15 @@ variable "wrapper_neop_path" {
   type        = string
   default     = "agents/recon"
 }
+variable "wrapper_memory_min_score" {
+  description = <<-EOT
+    Relevance gate for retrieved memory: drop chunks whose palace similarity score is below this before they
+    are injected as context (SEAT_MEMORY_MIN_SCORE, reply.ts). 0 = off (server NOISE_FLOOR=0.2 only). Measured
+    live 2026-07-09: on-topic ~1.07-1.14, off-topic "capital of France" = 0.19 → 1.0 keeps real hits, drops off-topic.
+  EOT
+  type        = number
+  default     = 0
+}
 variable "wrapper_ingress_cidrs" {
   description = <<-EOT
     Source CIDR(s) permitted to POST /seat/turn (the bridge, FORWARD_TOKEN-authenticated). DEFAULT [] ⇒ the
