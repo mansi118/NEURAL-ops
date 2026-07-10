@@ -1,0 +1,25 @@
+# nc-web served as a static container behind the matrix box's EXISTING Traefik (mdad uses Traefik v3,
+# NOT nginx). Same routing pattern as the Element client: web-secure entrypoint + certResolver "default"
+# (Let's Encrypt). Additive — no mdad service is touched; `docker compose up -d` after syncing dist/ to
+# ./html. This is what is actually deployed on the box (mirror of /home/ubuntu/nc-web).
+services:
+  nc-web:
+    image: nginx:alpine
+    container_name: nc-web
+    restart: unless-stopped
+    networks: [traefik]
+    volumes:
+      - ./html:/usr/share/nginx/html:ro
+      - ./container-default.conf:/etc/nginx/conf.d/default.conf:ro
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik
+      - "traefik.http.routers.nc-web.rule=Host(`chat.neuraledge.in`)"
+      - traefik.http.routers.nc-web.entrypoints=web-secure
+      - traefik.http.routers.nc-web.tls=true
+      - traefik.http.routers.nc-web.tls.certResolver=default
+      - traefik.http.services.nc-web.loadbalancer.server.port=80
+
+networks:
+  traefik:
+    external: true
