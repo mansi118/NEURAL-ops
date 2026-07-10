@@ -16,6 +16,7 @@ This is a LIVE NEop reply (Bar 1b/2). Run it only AFTER: Bar 1a (transport) is p
 box proofs are green (A2 injection-resistance, B GAP-1 ranked) and the wrapper is T9-acked. Box-side, yours.
 """
 import os
+import json
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -59,12 +60,18 @@ def main() -> None:
     svc = ASService(
         reg, handle=_no_inprocess, classifier=None,
         hs_base_url=os.environ.get("HS_BASE_URL", "http://localhost:8008"),
-        seat_url=seat_url, forward_token=forward_token)
+        seat_url=seat_url, forward_token=forward_token,
+        seat_routes=json.loads(os.environ.get("SEAT_ROUTES_JSON") or "{}"))
     host = os.environ.get("LISTEN_HOST", "127.0.0.1")
     port = int(os.environ.get("LISTEN_PORT", "8010"))
+    # Optional: post the seat's reply as a namespaced puppet (@<puppet>:server) so the answer shows as the
+    # NEop (e.g. neop_aria → "Aria") instead of the AS sender. Must be inside the @neop_.* namespace or
+    # reply_send refuses (M_EXCLUSIVE). Unset → replies come from the AS sender (backward-compatible).
+    puppet = os.environ.get("SEAT_PUPPET_LOCALPART") or None
     sys.stderr.write(
-        f"nc-channels SEAT runner on {host}:{port} (reflect=False) → Hermes {seat_url}, HS {svc.hs_base_url}\n")
-    svc.serve(host, port, reflect=False)
+        f"nc-channels SEAT runner on {host}:{port} (reflect=False) → Hermes {seat_url}, HS {svc.hs_base_url}"
+        f"{', puppet=@'+puppet if puppet else ''}\n")
+    svc.serve(host, port, reflect=False, puppet_localpart=puppet)
 
 
 if __name__ == "__main__":
