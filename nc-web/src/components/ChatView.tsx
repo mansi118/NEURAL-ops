@@ -3,6 +3,8 @@ import type { MatrixService } from "../lib/matrixService";
 import type { ChatMessage, RoomSummary } from "../lib/matrixService";
 import { mergeMessages, addOptimistic } from "../lib/timeline";
 import { optimisticMessage } from "../lib/messages";
+import { initials, colorFor } from "../lib/avatar";
+import { formatTs } from "../lib/time";
 
 // Core chat surface (PR-B): room list, live timeline with NEop-aware rendering, composer with
 // optimistic echo. All ordering/parsing lives in the tested pure modules; this is the thin view.
@@ -96,8 +98,17 @@ function Timeline({ messages }: { messages: ChatMessage[] }) {
             "nc-msg" + (m.isNeop ? " neop" : "") + (m.isSelf ? " self" : "") + (m.pending ? " pending" : "")
           }
         >
-          <span className="nc-sender">{m.displayName}</span>
-          <span className="nc-body">{m.body}</span>
+          <span className="nc-avatar" style={{ background: colorFor(m.displayName) }} aria-hidden>
+            {initials(m.displayName)}
+          </span>
+          <div className="nc-msg-body">
+            <div className="nc-msg-head">
+              <span className="nc-sender">{m.displayName}</span>
+              {m.isNeop && <span className="nc-badge">NEop</span>}
+              <span className="nc-time">{m.pending ? "…" : formatTs(m.ts)}</span>
+            </div>
+            <span className="nc-body">{m.body}</span>
+          </div>
         </li>
       ))}
     </ol>
