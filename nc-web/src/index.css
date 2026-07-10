@@ -3,14 +3,27 @@
   --nc-fg: #e8eaed;
   --nc-accent: #6c7bff;
   --nc-error: #ff6b6b;
+  --nc-line: rgba(127, 127, 127, 0.25);
+  --nc-hover: rgba(127, 127, 127, 0.12);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
+/* System preference is the default signal; the manual toggle stamps data-theme, which wins both ways. */
 @media (prefers-color-scheme: light) {
   :root {
     --nc-bg: #ffffff;
     --nc-fg: #1a1c20;
   }
+}
+
+:root[data-theme="dark"] {
+  --nc-bg: #0f1116;
+  --nc-fg: #e8eaed;
+}
+
+:root[data-theme="light"] {
+  --nc-bg: #ffffff;
+  --nc-fg: #1a1c20;
 }
 
 body {
@@ -177,4 +190,77 @@ body {
 .nc-empty {
   padding: 2rem;
   opacity: 0.6;
+}
+
+/* ── branding + theme controls ───────────────────────────────── */
+.nc-brand-mark {
+  color: var(--nc-accent);
+}
+
+.nc-topbar h1 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.nc-theme-toggle {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--nc-line);
+  color: inherit;
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.nc-login-top {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ── message rows: avatar + head + body ──────────────────────── */
+.nc-msg {
+  align-items: flex-start;
+}
+
+.nc-avatar {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.nc-msg-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.nc-msg-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.nc-badge {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #fff;
+  background: var(--nc-accent);
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+}
+
+.nc-time {
+  font-size: 0.7rem;
+  opacity: 0.5;
 }
