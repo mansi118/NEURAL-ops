@@ -308,6 +308,16 @@ variable "enable_wrapper" {
   type        = bool
   default     = false
 }
+variable "enable_recon_seat" {
+  description = <<-EOT
+    Add a SECOND wrapper seat for the `recon` NEop (agents/recon) alongside the primary seat. Additive: the
+    per-seat resources are for_each'd over the seats map; the first (primary) seat keeps byte-identical names
+    so it is never recreated. recon shares the FORWARD_TOKEN, model bearer, and jail SG; it gets its own
+    task-def, service, and Cloud Map name (seat-wrapper-recon). Default false.
+  EOT
+  type        = bool
+  default     = false
+}
 variable "wrapper_t9_ack" {
   description = <<-EOT
     Sets NEOP_T9_ACK=yes on the wrapper — i.e. CROSSES T9 (the first live NEop turn). HELD at false: default
@@ -371,6 +381,11 @@ variable "wrapper_neop_path" {
   description = "The seat's NEop folder (e.g. agents/recon)."
   type        = string
   default     = "agents/recon"
+}
+variable "wrapper_memory_min_score" {
+  description = "Relevance gate for retrieved memory (SEAT_MEMORY_MIN_SCORE, reply.ts). 0 = off (server floor only). Measured live: on-topic ~1.07-1.14, off-topic ~0.19; 1.0 keeps real hits."
+  type        = number
+  default     = 0
 }
 variable "wrapper_ingress_cidrs" {
   description = <<-EOT

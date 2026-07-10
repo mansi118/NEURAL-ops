@@ -7,14 +7,16 @@
 # NOTE: wrapper_t9_ack=true here means an apply CROSSES/HOLDS T9 (the wrapper serves live). That is
 # the conscious state as of the 2026-07-09 Bar-2 crossing; keep it deliberate.
 
-enable_wrapper         = true
-wrapper_image          = "071126865245.dkr.ecr.ap-south-1.amazonaws.com/neos-dogfood-wrapper:latest"
-wrapper_provider       = "amazon-bedrock"
-wrapper_palace_mcp_url = "http://convex.neos-dogfood.local:3211/mcp"
-wrapper_palace_id      = "k17f0b36y2f7h4sbr3pqp5wxg189cvg1"
-wrapper_neop_id        = "aria"
-wrapper_neop_path      = "agents/outreach"
-wrapper_t9_ack         = true
+enable_wrapper           = true
+wrapper_image            = "071126865245.dkr.ecr.ap-south-1.amazonaws.com/neos-dogfood-wrapper:latest"
+wrapper_provider         = "amazon-bedrock"
+wrapper_palace_mcp_url   = "http://convex.neos-dogfood.local:3211/mcp"
+wrapper_palace_id        = "k17f0b36y2f7h4sbr3pqp5wxg189cvg1"
+wrapper_neop_id          = "aria"
+wrapper_neop_path        = "agents/outreach"
+wrapper_t9_ack           = true
+wrapper_memory_min_score = 1.0  # relevance gate (live-measured: on-topic ~1.07-1.14, off-topic ~0.19)
+enable_recon_seat        = true # SECOND seat: recon (agents/recon) — additive, aria untouched
 
 enable_matrix_peering = true
 matrix_vpc_id         = "vpc-03e47f7a8946ba248"

@@ -34,6 +34,27 @@ locals {
   wrapper_is_openrouter = var.wrapper_provider == "openrouter"
   wrapper_model_secret  = local.wrapper_is_openrouter ? "OPENROUTER_API_KEY" : "AWS_BEARER_TOKEN_BEDROCK"
   wrapper_secret_keys   = ["FORWARD_TOKEN", local.wrapper_model_secret]
+
+  # ── MULTI-SEAT (2026-07-09) — one wrapper task per NEop seat, keyed by neop_id. ──────────────────────
+  # The per-seat resources (task-def, service, Cloud Map) are for_each'd over this map; the SHARED resources
+  # (secrets, SG, log group) stay singletons — every seat uses the same FORWARD_TOKEN + model bearer + jail SG.
+  # SAFETY: the FIRST seat MUST keep byte-identical names to the pre-refactor singleton (svc/family
+  # "${local.name}-wrapper", DNS "seat-wrapper") so a `terraform state mv [0] -> ["<neop_id>"]` shows it
+  # UNCHANGED (never destroy/recreate the live seat a real user is on). Additional seats get suffixed names.
+  wrapper_seats = var.enable_wrapper ? merge(
+    { (var.wrapper_neop_id) = {
+      neop_path  = var.wrapper_neop_path
+      svc_name   = "${local.name}-wrapper" # unchanged — the live seat's existing names
+      dns_name   = "seat-wrapper"
+      log_prefix = "wrapper" # unchanged — keep the live seat's task-def byte-identical
+    } },
+    var.enable_recon_seat ? { recon = {
+      neop_path  = "agents/recon"
+      svc_name   = "${local.name}-wrapper-recon"
+      dns_name   = "seat-wrapper-recon"
+      log_prefix = "recon"
+    } } : {}
+  ) : {}
 }
 
 resource "aws_secretsmanager_secret" "wrapper" {
@@ -138,8 +159,8 @@ resource "aws_security_group" "wrapper" {
 # ── service discovery — seat-wrapper.${local.name}.local:${wrapper_port}. Internal (Cloud Map) only; the
 #    wrapper has NO public surface (the sealed-spine intent). See §INBOUND for how the bridge reaches this.
 resource "aws_service_discovery_service" "wrapper" {
-  count = var.enable_wrapper ? 1 : 0
-  name  = "seat-wrapper"
+  for_each = local.wrapper_seats
+  name     = each.value.dns_name
 
   dns_config {
     namespace_id = aws_service_discovery_private_dns_namespace.main.id
@@ -163,8 +184,8 @@ resource "aws_cloudwatch_log_group" "wrapper" {
 }
 
 resource "aws_ecs_task_definition" "wrapper" {
-  count                    = var.enable_wrapper ? 1 : 0
-  family                   = "${local.name}-wrapper"
+  for_each                 = local.wrapper_seats
+  family                   = each.value.svc_name
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = var.task_cpu
@@ -193,8 +214,11 @@ resource "aws_ecs_task_definition" "wrapper" {
           { name = "SEAT_HOST", value = "0.0.0.0" },
           { name = "PALACE_MCP_URL", value = var.wrapper_palace_mcp_url }, # in-VPC Cloud Map convex /mcp (internal)
           { name = "PALACE_ID", value = var.wrapper_palace_id },           # scope — from env, never payload
-          { name = "NEOP_ID", value = var.wrapper_neop_id },               # scope — from env, never payload
-          { name = "NEOP_PATH", value = var.wrapper_neop_path },           # the seat's NEop folder
+          { name = "NEOP_ID", value = each.key },                          # scope (per-seat) — from env, never payload
+          { name = "NEOP_PATH", value = each.value.neop_path },            # the seat's NEop folder (per-seat)
+          # Relevance gate for retrieved memory (reply.ts): drop chunks below this palace-similarity score.
+          # Measured live 2026-07-09: on-topic ~1.07-1.14, off-topic ~0.19 → 1.0 keeps real hits. 0 = off.
+          { name = "SEAT_MEMORY_MIN_SCORE", value = tostring(var.wrapper_memory_min_score) },
         ],
         var.wrapper_t9_ack ? [{ name = "NEOP_T9_ACK", value = "yes" }] : [] # T9 CROSSING — held false
       )
@@ -207,7 +231,7 @@ resource "aws_ecs_task_definition" "wrapper" {
         options = {
           "awslogs-group"         = aws_cloudwatch_log_group.wrapper[0].name
           "awslogs-region"        = var.region
-          "awslogs-stream-prefix" = "wrapper"
+          "awslogs-stream-prefix" = each.value.log_prefix # per-seat prefix; aria stays "wrapper" (byte-identical)
         }
       }
     },
@@ -215,21 +239,21 @@ resource "aws_ecs_task_definition" "wrapper" {
 }
 
 resource "aws_ecs_service" "wrapper" {
-  count           = var.enable_wrapper ? 1 : 0
-  name            = "${local.name}-wrapper"
+  for_each        = local.wrapper_seats
+  name            = each.value.svc_name
   cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.wrapper[0].arn
+  task_definition = aws_ecs_task_definition.wrapper[each.key].arn
   desired_count   = 1
   launch_type     = "FARGATE"
 
   network_configuration {
     subnets          = aws_subnet.private[*].id
-    security_groups  = [aws_security_group.wrapper[0].id]
-    assign_public_ip = false # sealed spine — no public IP on the NEop-executing task
+    security_groups  = [aws_security_group.wrapper[0].id] # shared jail SG (same egress allowlist for every seat)
+    assign_public_ip = false                              # sealed spine — no public IP on the NEop-executing task
   }
 
   service_registries {
-    registry_arn = aws_service_discovery_service.wrapper[0].arn
+    registry_arn = aws_service_discovery_service.wrapper[each.key].arn
   }
 }
 
