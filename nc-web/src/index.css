@@ -1,0 +1,75 @@
+:root {
+  --nc-bg: #0f1116;
+  --nc-fg: #e8eaed;
+  --nc-accent: #6c7bff;
+  --nc-error: #ff6b6b;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --nc-bg: #ffffff;
+    --nc-fg: #1a1c20;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--nc-bg);
+  color: var(--nc-fg);
+}
+
+.nc-app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.nc-login form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 320px;
+}
+
+.nc-login label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.nc-login input,
+.nc-login button {
+  padding: 0.5rem;
+  font-size: 1rem;
+}
+
+.nc-login button {
+  background: var(--nc-accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.nc-login button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.nc-error {
+  color: var(--nc-error);
+}
+
+.nc-rooms {
+  list-style: none;
+  padding: 0;
+}
+
+.nc-rooms li {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 0.25rem;
+  background: rgba(127, 127, 127, 0.12);
+}
