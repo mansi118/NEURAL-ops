@@ -75,7 +75,10 @@ def grade(predicted, actual, *, judge=None):
     if j <= LEXICAL_DISAGREE:
         return False, round(j, 3), "lexical"
     if judge is not None:
-        s = max(0.0, min(1.0, float(judge(predicted, actual))))
+        raw = judge(predicted, actual)
+        if raw is None:                       # judge abstains (uncertain / model error) -> UNSCORED,
+            return None, round(j, 3), "judge_abstain"   # never fabricate agreement from a bad grade
+        s = max(0.0, min(1.0, float(raw)))
         return (s >= JUDGE_AGREE), round(s, 3), "judge"
     return None, round(j, 3), "lexical_inconclusive"
 
