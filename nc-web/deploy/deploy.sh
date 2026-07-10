@@ -1,32 +1,32 @@
 #!/usr/bin/env bash
-# nc-web deploy — build the static SPA and sync it to the matrix box's nginx docroot.
+# nc-web deploy — build the static SPA and (re)start the Traefik-fronted container on the matrix box.
 #
-# No secrets in here. Box access is via the durable key or EC2 Instance Connect (see OPS-ACCESS.md).
-# This is the executable half of the gated launch step; the one-time box setup (DNS, TLS, enabling the
-# vhost) is in docs/deployment/nc-web-deploy-runbook.md.
+# The box runs mdad = Traefik v3 (NOT nginx). nc-web is a small static container on the `traefik` network
+# with Host(`chat.neuraledge.in`) labels, same pattern as the Element client; Traefik auto-provisions TLS
+# via its "default" (Let's Encrypt) resolver once chat.neuraledge.in publicly resolves to the box.
+# No secrets here. Box access: durable key or EC2 Instance Connect (see OPS-ACCESS.md).
 #
 # Usage:
-#   BOX_HOST=ubuntu@13.201.114.109  SSH_KEY=~/.ssh/box_key  ./deploy/deploy.sh
-# Optional:
-#   VITE_MATRIX_BASE_URL=https://matrix.neuraledge.in  (baked into the build; defaults to that)
-#   REMOTE_DOCROOT=/var/www/nc-web
+#   BOX_HOST=ubuntu@13.201.114.109 SSH_KEY=~/.ssh/box_key ./nc-web/deploy/deploy.sh
+# Optional: VITE_MATRIX_BASE_URL=https://matrix.neuraledge.in (baked into the build), REMOTE_DIR
 set -euo pipefail
-
 cd "$(dirname "$0")/.."
 
 : "${BOX_HOST:?set BOX_HOST=ubuntu@<box-ip>}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/box_key}"
-REMOTE_DOCROOT="${REMOTE_DOCROOT:-/var/www/nc-web}"
-SSH_OPTS=(-o StrictHostKeyChecking=accept-new -i "$SSH_KEY")
+REMOTE_DIR="${REMOTE_DIR:-/home/ubuntu/nc-web}"
+SSH=(ssh -o StrictHostKeyChecking=accept-new -i "$SSH_KEY")
 
 echo "==> build"
 npm ci
 npm run build   # tsc --noEmit && vite build -> dist/
 
-echo "==> sync dist/ -> $BOX_HOST:$REMOTE_DOCROOT (atomic via a temp dir + mv)"
-TMP="/tmp/nc-web-$(date +%s 2>/dev/null || echo deploy)"
-rsync -az --delete -e "ssh ${SSH_OPTS[*]}" dist/ "$BOX_HOST:$TMP/"
-ssh "${SSH_OPTS[@]}" "$BOX_HOST" \
-  "sudo mkdir -p $REMOTE_DOCROOT && sudo rsync -a --delete $TMP/ $REMOTE_DOCROOT/ && rm -rf $TMP && sudo nginx -t && sudo systemctl reload nginx"
+echo "==> sync dist/ + compose + conf -> $BOX_HOST:$REMOTE_DIR"
+"${SSH[@]}" "$BOX_HOST" "mkdir -p $REMOTE_DIR/html"
+rsync -az --delete -e "${SSH[*]}" dist/ "$BOX_HOST:$REMOTE_DIR/html/"
+rsync -az -e "${SSH[*]}" deploy/docker-compose.yml deploy/container-default.conf "$BOX_HOST:$REMOTE_DIR/"
 
-echo "==> deployed. Verify: https://chat.neuraledge.in"
+echo "==> (re)start the Traefik-fronted container"
+"${SSH[@]}" "$BOX_HOST" "cd $REMOTE_DIR && (docker compose up -d --force-recreate || docker restart nc-web) && docker ps --filter name=nc-web --format '{{.Names}} {{.Status}}'"
+
+echo "==> deployed. Once chat.neuraledge.in resolves to the box, verify: https://chat.neuraledge.in"
