@@ -1,5 +1,22 @@
 import { describe, it, expect, vi } from "vitest";
-import { MatrixService, NotLoggedInError, type MatrixLike, type ClientFactory } from "./matrixService";
+import {
+  MatrixService,
+  NotLoggedInError,
+  type MatrixLike,
+  type ClientFactory,
+  type TimelineListener,
+  type RawEvent,
+} from "./matrixService";
+
+function rawMessage(id: string, sender: string, body: string, ts = 1): RawEvent {
+  return {
+    getId: () => id,
+    getSender: () => sender,
+    getType: () => "m.room.message",
+    getContent: () => ({ body, msgtype: "m.text" }),
+    getTs: () => ts,
+  };
+}
 
 // A fake MatrixLike client + a factory that records how it was constructed, so we can assert the
 // service authenticates and threads the token without any real homeserver.
@@ -9,7 +26,11 @@ function makeFake() {
     { roomId: "!a:hs", name: "bar1a-echo" },
     { roomId: "!b:hs", name: "Recon" },
   ];
+  const timelines: Record<string, RawEvent[]> = {
+    "!a:hs": [rawMessage("$1", "@mansi:hs", "hi", 1), rawMessage("$2", "@neop_aria:hs", "hello", 2)],
+  };
   const sent: { roomId: string; body: string }[] = [];
+  const listeners: TimelineListener[] = [];
   const client: MatrixLike = {
     login: vi.fn(async (_type, data) => ({
       access_token: `tok-${data.user}`,
@@ -18,16 +39,27 @@ function makeFake() {
     startClient: vi.fn(async () => {}),
     stopClient: vi.fn(() => {}),
     getRooms: vi.fn(() => rooms),
+    getRoom: vi.fn((roomId: string) =>
+      timelines[roomId]
+        ? { roomId, name: roomId, getLiveTimeline: () => ({ getEvents: () => timelines[roomId] }) }
+        : null,
+    ),
     sendTextMessage: vi.fn(async (roomId, body) => {
       sent.push({ roomId, body });
       return { event_id: `$evt-${sent.length}` };
+    }),
+    on: vi.fn((_e: string, l: TimelineListener) => listeners.push(l)),
+    off: vi.fn((_e: string, l: TimelineListener) => {
+      const i = listeners.indexOf(l);
+      if (i >= 0) listeners.splice(i, 1);
     }),
   };
   const factory: ClientFactory = (opts) => {
     calls.push({ opts });
     return client;
   };
-  return { factory, client, calls, sent };
+  const emit = (roomId: string, ev: RawEvent) => listeners.forEach((l) => l(ev, { roomId }));
+  return { factory, client, calls, sent, listeners, emit };
 }
 
 describe("MatrixService", () => {
@@ -65,5 +97,31 @@ describe("MatrixService", () => {
     const { factory } = makeFake();
     const svc = new MatrixService("https://hs", factory);
     expect(() => svc.rooms()).toThrow(NotLoggedInError);
+  });
+
+  it("reads a room's timeline as parsed ChatMessages with NEop + self tagging", async () => {
+    const { factory } = makeFake();
+    const svc = new MatrixService("https://hs", factory);
+    await svc.login("mansi", "pw"); // self = @mansi:neuraledge.in (not the timeline's @mansi:hs)
+    const msgs = svc.roomMessages("!a:hs");
+    expect(msgs.map((m) => [m.body, m.isNeop])).toEqual([
+      ["hi", false],
+      ["hello", true],
+    ]);
+    expect(svc.roomMessages("!missing:hs")).toEqual([]);
+  });
+
+  it("subscribes to new timeline messages and unsubscribes cleanly", async () => {
+    const { factory, emit, listeners } = makeFake();
+    const svc = new MatrixService("https://hs", factory);
+    await svc.login("u", "pw");
+    const got: string[] = [];
+    const unsub = svc.subscribeMessages((roomId, msg) => got.push(`${roomId}:${msg.body}`));
+    emit("!a:hs", rawMessage("$new", "@neop_recon:hs", "scanning", 5));
+    expect(got).toEqual(["!a:hs:scanning"]);
+    unsub();
+    expect(listeners).toHaveLength(0);
+    emit("!a:hs", rawMessage("$after", "@u:hs", "ignored", 6));
+    expect(got).toEqual(["!a:hs:scanning"]); // no delivery after unsubscribe
   });
 });

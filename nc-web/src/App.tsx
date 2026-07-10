@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { MatrixService, type RoomSummary } from "./lib/matrixService";
+import { MatrixService } from "./lib/matrixService";
 import { realFactory } from "./lib/realClient";
 import { MATRIX_BASE_URL, APP_NAME } from "./config";
+import ChatView from "./components/ChatView";
 
 // PR-A scaffold surface: a login screen that authenticates against the live Synapse and lists the
 // user's rooms. Core chat (timeline/composer/NEop rendering) lands in PR-B; this proves the seam.
@@ -9,7 +10,7 @@ export default function App() {
   const [svc] = useState(() => new MatrixService(MATRIX_BASE_URL, realFactory));
   const [user, setUser] = useState("");
   const [password, setPassword] = useState("");
-  const [rooms, setRooms] = useState<RoomSummary[]>([]);
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -20,7 +21,7 @@ export default function App() {
     try {
       await svc.login(user, password);
       await svc.start();
-      setRooms(svc.rooms());
+      setReady(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -28,17 +29,14 @@ export default function App() {
     }
   }
 
-  if (svc.isLoggedIn()) {
+  if (ready && svc.isLoggedIn()) {
     return (
-      <main className="nc-app">
-        <h1>{APP_NAME}</h1>
-        <p className="nc-who">Signed in as {svc.currentUserId()}</p>
-        <h2>Rooms</h2>
-        <ul className="nc-rooms">
-          {rooms.map((r) => (
-            <li key={r.roomId}>{r.name || r.roomId}</li>
-          ))}
-        </ul>
+      <main className="nc-app nc-app-chat">
+        <header className="nc-topbar">
+          <h1>{APP_NAME}</h1>
+          <span className="nc-who">{svc.currentUserId()}</span>
+        </header>
+        <ChatView svc={svc} />
       </main>
     );
   }
