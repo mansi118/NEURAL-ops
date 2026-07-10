@@ -5,6 +5,10 @@
 // injected as a `ClientFactory`, mocked in tests and the real `createClient` in the app. Typed against
 // a minimal structural `MatrixLike` (just the methods we use) so mocks stay trivial and tsc stays honest.
 
+import { parseEvent, type RawEvent, type ChatMessage } from "./messages";
+
+export type { RawEvent, ChatMessage } from "./messages";
+
 export interface LoginResponse {
   access_token: string;
   user_id: string;
@@ -15,6 +19,15 @@ export interface RoomSummary {
   name: string;
 }
 
+export interface RoomLike {
+  roomId: string;
+  name: string;
+  getLiveTimeline(): { getEvents(): RawEvent[] };
+}
+
+// A matrix-js-sdk Room.timeline listener: (event, room, ...). Typed loosely; the service extracts.
+export type TimelineListener = (event: RawEvent, room: { roomId: string } | undefined) => void;
+
 // The structural subset of matrix-js-sdk's MatrixClient that nc-web uses. The real createClient
 // satisfies this; tests supply a fake.
 export interface MatrixLike {
@@ -22,7 +35,10 @@ export interface MatrixLike {
   startClient(opts?: { initialSyncLimit?: number }): Promise<void>;
   stopClient(): void;
   getRooms(): RoomSummary[];
+  getRoom(roomId: string): RoomLike | null;
   sendTextMessage(roomId: string, body: string): Promise<{ event_id: string }>;
+  on(event: string, listener: TimelineListener): void;
+  off(event: string, listener: TimelineListener): void;
 }
 
 export interface ClientFactoryOpts {
@@ -82,6 +98,29 @@ export class MatrixService {
   async send(roomId: string, body: string): Promise<string> {
     const res = await this.require().sendTextMessage(roomId, body);
     return res.event_id;
+  }
+
+  /** Current text messages in a room's live timeline, parsed + filtered to renderable ones. */
+  roomMessages(roomId: string): ChatMessage[] {
+    const room = this.require().getRoom(roomId);
+    if (!room) return [];
+    const out: ChatMessage[] = [];
+    for (const ev of room.getLiveTimeline().getEvents()) {
+      const msg = parseEvent(ev, this.userId);
+      if (msg) out.push(msg);
+    }
+    return out;
+  }
+
+  /** Subscribe to new timeline messages across rooms. Returns an unsubscribe fn. */
+  subscribeMessages(cb: (roomId: string, msg: ChatMessage) => void): () => void {
+    const client = this.require();
+    const listener: TimelineListener = (event, room) => {
+      const msg = parseEvent(event, this.userId);
+      if (msg && room?.roomId) cb(room.roomId, msg);
+    };
+    client.on("Room.timeline", listener);
+    return () => client.off("Room.timeline", listener);
   }
 
   isLoggedIn(): boolean {
