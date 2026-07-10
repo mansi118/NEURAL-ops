@@ -7,6 +7,7 @@ import DecisionQueue from "./components/DecisionQueue";
 import FidelityDashboard from "./components/FidelityDashboard";
 import { findDecisionRoom } from "./lib/proposals";
 import { findFidelityRoom } from "./lib/fidelity";
+import { humanizeAuthError } from "./lib/errors";
 import { resolveInitialTheme, toggleTheme, persistTheme, applyTheme, type Theme } from "./lib/theme";
 
 type View = "chat" | "queue" | "fidelity";
@@ -63,7 +64,7 @@ export default function App() {
       await svc.start();
       setReady(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(humanizeAuthError(err));
     } finally {
       setBusy(false);
     }
@@ -131,7 +132,8 @@ export default function App() {
           {busy ? "Signing in…" : "Sign in"}
         </button>
       </form>
-      {error && <p className="nc-error">{error}</p>}
+      {error && <p className="nc-error" role="alert">{error}</p>}
+      <p className="nc-hint">Sign in with your NeuralEdge account, then message a NEop like Aria or Recon.</p>
     </main>
   );
 }
