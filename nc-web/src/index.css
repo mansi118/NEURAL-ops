@@ -306,3 +306,43 @@ h1 {
   .nc-nav button { padding: 0.35rem 0.6rem; }
   .nc-who { display: none; }
 }
+
+/* ── usability layer (Design of Everyday Things) ─────────────── */
+
+/* visible focus affordance on every interactive element */
+button:focus-visible, input:focus-visible, .nc-room:focus-visible {
+  outline: 2px solid var(--nc-accent);
+  outline-offset: 2px;
+}
+
+/* "thinking" feedback — a NEop is processing your message (1–10s gulf-of-evaluation guidance) */
+.nc-thinking .nc-body { padding: 0.6rem 0.9rem; }
+.nc-dots { display: inline-flex; align-items: center; gap: 4px; }
+.nc-dots i {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--nc-accent);
+  display: inline-block; opacity: 0.4; animation: nc-blink 1.2s infinite ease-in-out both;
+}
+.nc-dots i:nth-child(2) { animation-delay: 0.18s; }
+.nc-dots i:nth-child(3) { animation-delay: 0.36s; }
+@keyframes nc-blink { 0%, 80%, 100% { opacity: 0.25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
+
+/* visually-hidden label (announced to screen readers, not shown) */
+.nc-vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* recoverable send error — says what happened + how to fix, never silent */
+.nc-send-error {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  margin: 0 1rem 0.5rem; padding: 0.55rem 0.85rem;
+  background: rgba(255, 107, 139, 0.12); border: 1px solid rgba(255, 107, 139, 0.4);
+  border-radius: 10px; color: var(--nc-error); font-size: 0.85rem;
+}
+.nc-send-error button {
+  background: transparent; border: none; color: inherit; cursor: pointer; font-size: 0.9rem; opacity: 0.7;
+}
+.nc-send-error button:hover { opacity: 1; }
+
+.nc-hint { color: var(--nc-muted); font-size: 0.8rem; max-width: 320px; text-align: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  body::before, .nc-msg, .nc-dots i, .nc-bar-fill { animation: none !important; transition: none !important; }
+}
