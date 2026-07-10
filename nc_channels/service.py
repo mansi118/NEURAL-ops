@@ -57,7 +57,7 @@ class ASService:
 
     def __init__(self, reg: ASRegistration, *, handle: Callable, classifier,
                  hs_base_url: str = "http://localhost:8008", transport: Optional[Callable] = None,
-                 seat_url: Optional[str] = None, forward_token: str = ""):
+                 seat_url: Optional[str] = None, forward_token: str = "", seat_routes: Optional[dict] = None):
         if not (reg.tenant and reg.tenant.strip()):
             raise ValueError("AS registration needs a tenant (one AS per tenant, CA-5)")
         if not reg.hs_token:
@@ -76,6 +76,9 @@ class ASService:
         # NOT dispatched in-process. Fail-closed: reflect=False refuses without BOTH (never a naked forward).
         self.seat_url = seat_url.rstrip("/") if seat_url else None
         self.forward_token = forward_token
+        # Multi-seat routing: room_id -> {"seat_url","puppet"}. Rooms not listed use the default
+        # seat_url + puppet_localpart (so a single-seat deploy is unchanged / backward-compatible).
+        self.seat_routes = seat_routes or {}
 
     # ---- inbound auth (offline-verifiable) ----
     def verify_hs_token(self, presented: Optional[str]) -> bool:
@@ -103,7 +106,12 @@ class ASService:
             return TransactionResult(deduped=True)
         res = TransactionResult()
         for event in transaction.get("events", []):
-            if not ma.is_routable_message(event, as_localparts=self.reg.as_localparts()):
+            # Loop guard: skip non-messages/the AS sender (is_routable_message) AND any sender inside the AS
+            # user namespace — the puppet replies (e.g. @neop_aria) are our OWN traffic; without this the
+            # seat's answer would be re-forwarded to itself in an infinite loop. sender_localpart (neos-bot)
+            # is usually outside the @neop_.* namespace, so both checks are needed.
+            if not ma.is_routable_message(event, as_localparts=self.reg.as_localparts()) \
+                    or _matches_namespace(event.get("sender") or "", self.reg.user_namespace_regex):
                 res.skipped += 1
                 continue
             raw = ma.matrix_message_to_raw(
@@ -129,7 +137,7 @@ class ASService:
             query=query, body=body)
 
     # ---- the live wire (IMPLEMENTED; correctness PROVEN AT THE BOX against real Synapse, never a mock) ----
-    def serve(self, host: str, port: int, *, reflect: bool = True):
+    def serve(self, host: str, port: int, *, reflect: bool = True, puppet_localpart: Optional[str] = None):
         """Start the AS HTTP server: PUT /_matrix/app/v1/transactions/{txnId}.
 
         reflect=True  → **Bar 1a**: a hardcoded echo, NO runtime. core.py raises on live (see
@@ -180,10 +188,20 @@ class ASService:
                             # B-fwd: forward to the Hermes seat wrapper; render its ReplyEnvelope.text (Bar 1b/2).
                             envelope = svc._seat_forward(raw)
                             result = {"stream": [envelope.get("text") or ""]}
-                        send = svc.reply_send(raw.get("conversation_id"), result, "ncq-" + uuid.uuid4().hex)
+                        _room = raw.get("conversation_id")
+                        _pup = (svc.seat_routes.get(_room or "") or {}).get("puppet") or puppet_localpart
+                        send = svc.reply_send(_room, result, "ncq-" + uuid.uuid4().hex,
+                                              puppet_localpart=_pup)
                         svc._cs_api_call(send)
                     except Exception as e:                 # one bad message must not drop the whole txn
                         sys.stderr.write(f"nc-channels: reply failed for {raw.get('msg_id')}: {e}\n")
+                        try:                                   # ALWAYS reply — never leave the user in silence
+                            _r = raw.get("conversation_id")
+                            _p = (svc.seat_routes.get(_r or "") or {}).get("puppet") or puppet_localpart
+                            _fb = {"stream": ["Sorry — I hit an error handling that. Please try again in a moment."]}
+                            svc._cs_api_call(svc.reply_send(_r, _fb, "ncq-" + uuid.uuid4().hex, puppet_localpart=_p))
+                        except Exception as e2:
+                            sys.stderr.write(f"nc-channels: fallback reply also failed for {raw.get('msg_id')}: {e2}\n")
                 return self._reply(200, {})
 
             def log_message(self, *a):
@@ -219,7 +237,9 @@ class ASService:
         might send (M_SCOPE_SPOOF). We carry only the message + Matrix identity. FAIL-CLOSED: refuse without a
         seat_url AND a forward_token (never a naked, unauthenticated forward — ADR-wire-b-forwarding trust seam).
         Request CONSTRUCTION is unit-tested via the injectable transport; the live hop is box-proven."""
-        if not self.seat_url:
+        _route = self.seat_routes.get(raw.get("conversation_id") or "") or {}
+        seat_url = _route.get("seat_url") or self.seat_url  # per-room seat, else the default
+        if not seat_url:
             raise RuntimeError("reflect=False requires seat_url (the Hermes POST /seat/turn endpoint) — refusing")
         if not self.forward_token:
             raise RuntimeError("reflect=False requires forward_token (bridge→seat auth) — refusing (fail-closed)")
@@ -233,10 +253,10 @@ class ASService:
                    "Authorization": f"Bearer {self.forward_token}"}
         data = json.dumps(body).encode("utf-8")
         if self._transport is not None:
-            status, resp = self._transport("POST", self.seat_url, data, headers)
+            status, resp = self._transport("POST", seat_url, data, headers)
         else:  # pragma: no cover  (box-proven, not unit)
             import urllib.request
-            req = urllib.request.Request(self.seat_url, data=data, headers=headers, method="POST")
+            req = urllib.request.Request(seat_url, data=data, headers=headers, method="POST")
             with urllib.request.urlopen(req, timeout=30) as r:
                 body_txt = r.read().decode("utf-8")
                 status, resp = r.status, (json.loads(body_txt) if body_txt.strip() else {})
