@@ -105,6 +105,34 @@ def human_signal(agreed, *, field="decision_style", kind="structural", decision_
     }
 
 
+def is_shadow_event(ev) -> bool:
+    """A core.py `shadow_prediction` event, matched on either envelope key (`kind` or `type`) so the
+    adapter never couples to core.py's internal event() shape."""
+    return isinstance(ev, dict) and (ev.get("kind") == "shadow_prediction"
+                                     or ev.get("type") == "shadow_prediction")
+
+
+def signal_from_event(ev, *, judge=None, field="decision_style", kind="structural"):
+    """Grade one core.py shadow_prediction event → a Curator signal. Re-grades from predicted/actual
+    (core.py's own `agreed` is exact-only); `class` carries through as the decision class."""
+    return shadow_signal(ev.get("predicted"), ev.get("actual"), judge=judge,
+                         field=field, kind=kind, decision_class=ev.get("class", "selective"))
+
+
+def signals_from_events(events, *, judge=None, field="decision_style", kind="structural"):
+    """Filter a run's event stream to shadow predictions and grade each. The live harness reads these
+    events off finished runs and feeds the result to `curator.curate` — this is that adapter."""
+    return [signal_from_event(ev, judge=judge, field=field, kind=kind)
+            for ev in (events or []) if is_shadow_event(ev)]
+
+
+def recent(signals, k):
+    """Trailing count-window (the '30d' bound is time in curator; k bounds volume here). k<=0 → all."""
+    if k is None or k <= 0:
+        return list(signals)
+    return list(signals)[-k:]
+
+
 def _rate(xs):
     return round(sum(1 for s in xs if s["agreed"]) / len(xs), 3) if xs else None
 

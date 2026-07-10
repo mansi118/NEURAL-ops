@@ -9,7 +9,7 @@ import sys, pathlib
 R = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(R))
 from runtime.shadow import (grade, jaccard, shadow_signal, human_signal,  # noqa: E402
-                            fidelity_breakdown)
+                            fidelity_breakdown, signals_from_events, is_shadow_event, recent)
 from runtime.curator import curate, fidelity  # noqa: E402
 
 
@@ -111,6 +111,33 @@ def test_end_to_end_freetext_advances_the_clock():
     out = curate(growing, sigs, [], sustained_days=30)
     assert out["fidelity"] == 0.7 and out["maturity"] == "mature", out
     print("PASS test_end_to_end_freetext_advances_the_clock")
+
+
+def test_event_adapter_filters_and_grades():
+    # a mixed run stream: envelope key is 'kind' (core.py) — only shadow_prediction rows are graded
+    events = [
+        {"kind": "run_start", "neop": "aria"},
+        {"kind": "shadow_prediction", "predicted": "ship it today", "actual": "ship it today",
+         "agreed": True, "class": "selective"},                        # exact -> True
+        {"kind": "memory_write", "status": "ok"},
+        {"kind": "shadow_prediction", "predicted": "approve the refund",
+         "actual": "penguins waddle across ice", "agreed": False, "class": "reflexive"},  # disjoint -> False
+        {"type": "shadow_prediction", "predicted": "deploy the release now",
+         "actual": "please deploy the release right now", "class": "selective"},  # 'type' envelope, lexical True
+    ]
+    sigs = signals_from_events(events)
+    assert len(sigs) == 3, sigs                                        # 3 of 5 events are shadow
+    assert [s["agreed"] for s in sigs] == [True, False, True], sigs
+    assert sigs[1]["class"] == "reflexive", sigs                       # decision class carried through
+    assert fidelity(sigs) == round(2 / 3, 3)                           # feeds curator directly
+    assert is_shadow_event({"kind": "run_end"}) is False
+    print("PASS test_event_adapter_filters_and_grades")
+
+
+def test_recent_window():
+    sigs = [shadow_signal("a", "a") for _ in range(5)]
+    assert len(recent(sigs, 2)) == 2 and len(recent(sigs, 0)) == 5 and len(recent(sigs, None)) == 5
+    print("PASS test_recent_window")
 
 
 def test_determinism():
