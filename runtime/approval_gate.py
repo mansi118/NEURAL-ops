@@ -13,9 +13,10 @@ from __future__ import annotations
 
 from acp.approval import (Action, ApprovalPolicy, decide as _decide,  # noqa: F401
                           resolve_grant, ALLOW, DENY, AWAIT)
+from acp.approval_mode import evaluate as _evaluate, flip_readiness, ENFORCE, REPORT_ONLY
 
 __all__ = ["ApprovalBroker", "MemorySnapshotStore", "ConvexSnapshotStore", "ApprovalPolicy",
-           "build_approval"]
+           "build_approval", "ENFORCE", "REPORT_ONLY"]
 
 
 class MemorySnapshotStore:
@@ -89,11 +90,18 @@ class ApprovalBroker:
     snapshot store. `grants` maps an action `name` → "allow" | "deny" (the recorded human verdict
     used on resume); offline it is provided by the fixture, live it is the Decision Queue."""
 
-    def __init__(self, policy, *, grants=None, grantor="ml", store=None):
+    def __init__(self, policy, *, grants=None, grantor="ml", store=None, mode=ENFORCE):
         self.policy = policy
         self.grants = dict(grants or {})
         self.grantor = grantor
         self.store = store or MemorySnapshotStore()
+        # Governance mode. ENFORCE (default) = today's behaviour, byte-identical. REPORT_ONLY runs the
+        # policy but PROCEEDS, accumulating the shadow decisions for `readiness()` — the observe-before-
+        # -flip window (Phase-A governance flip). Report-only never pauses, so grants/resume are unused.
+        if mode not in (ENFORCE, REPORT_ONLY):
+            raise ValueError(f"unknown governance mode {mode!r}")
+        self.mode = mode
+        self._observed = []
 
     def _action(self, d):
         return Action(scope=d["scope"], name=d["name"], seat=d["seat"],
@@ -101,8 +109,22 @@ class ApprovalBroker:
 
     # --- gate (forward pass) -------------------------------------------------
     def decide(self, action):
-        """→ (decision, reason). decision ∈ {allow, await, deny}."""
+        """→ (decision, reason). decision ∈ {allow, await, deny}. In ENFORCE this is exactly the raw
+        engine; in REPORT_ONLY it always returns ALLOW and records the shadow decision for readiness()."""
+        if self.mode == REPORT_ONLY:
+            effective, audit = _evaluate(self._action(action), self.policy, mode=REPORT_ONLY)
+            self._observed.append(audit)
+            return effective, audit["reason"]
         return _decide(self._action(action), self.policy)
+
+    # --- observe-before-flip -------------------------------------------------
+    def observed(self):
+        """The report-only audits seen so far (the raw window feeding readiness())."""
+        return list(self._observed)
+
+    def readiness(self):
+        """Blast-radius summary of the report-only window → is ENFORCE safe to flip on?"""
+        return flip_readiness(self._observed)
 
     # --- resolve (resume) ----------------------------------------------------
     def resolve(self, action):
@@ -133,11 +155,14 @@ class ApprovalBroker:
         return self.store.pending()
 
 
-def build_approval(policy_config, *, mode="unit", palace_id=None, grants=None, grantor=None):
+def build_approval(policy_config, *, mode="unit", palace_id=None, grants=None, grantor=None,
+                   governance=ENFORCE):
     """flip-as-config: construct a tenant's ApprovalBroker from a policy CONFIG — or return None
-    (governance OFF; dispatch(approval=None) is byte-identical). The store is picked by mode:
+    (governance OFF; dispatch(approval=None) is byte-identical). The store is picked by `mode`:
     MemorySnapshotStore (unit) vs the per-tenant ConvexSnapshotStore (integration; requires palace_id).
-    Turning governance on for a tenant is supplying a policy config — not a code edit.
+    `governance` picks ENFORCE (default) vs REPORT_ONLY — the observe-before-flip window; distinct from
+    `mode`, which is the store backend. Turning governance on for a tenant is supplying a policy config
+    (and, for the flip, `governance`) — not a code edit.
 
     GRANTOR — forward-dependency, named not hidden: the grantor is the granting AUTHORITY recorded on a
     grant. This builder deliberately does NOT default it — a hardcoded grantor is an ASSERTED identity,
@@ -155,4 +180,4 @@ def build_approval(policy_config, *, mode="unit", palace_id=None, grants=None, g
         store = ConvexSnapshotStore(palace_id)
     else:
         store = MemorySnapshotStore()
-    return ApprovalBroker(policy, grants=grants, grantor=grantor, store=store)
+    return ApprovalBroker(policy, grants=grants, grantor=grantor, store=store, mode=governance)
