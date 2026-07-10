@@ -4,10 +4,12 @@ import { realFactory } from "./lib/realClient";
 import { MATRIX_BASE_URL, APP_NAME } from "./config";
 import ChatView from "./components/ChatView";
 import DecisionQueue from "./components/DecisionQueue";
+import FidelityDashboard from "./components/FidelityDashboard";
 import { findDecisionRoom } from "./lib/proposals";
+import { findFidelityRoom } from "./lib/fidelity";
 import { resolveInitialTheme, toggleTheme, persistTheme, applyTheme, type Theme } from "./lib/theme";
 
-type View = "chat" | "queue";
+type View = "chat" | "queue" | "fidelity";
 
 function useTheme(): [Theme, () => void] {
   const [theme, setTheme] = useState<Theme>(() =>
@@ -81,16 +83,24 @@ export default function App() {
             <button className={view === "queue" ? "active" : ""} onClick={() => setView("queue")}>
               Queue
             </button>
+            <button className={view === "fidelity" ? "active" : ""} onClick={() => setView("fidelity")}>
+              Fidelity
+            </button>
           </nav>
           <span className="nc-who">{svc.currentUserId()}</span>
           {themeToggle}
         </header>
-        {view === "chat" ? (
-          <ChatView svc={svc} />
-        ) : (
+        {view === "chat" && <ChatView svc={svc} />}
+        {view === "queue" && (
           <div className="nc-panel">
             <h2>Decision Queue</h2>
             <DecisionQueue svc={svc} roomId={findDecisionRoom(svc.rooms())?.roomId ?? null} />
+          </div>
+        )}
+        {view === "fidelity" && (
+          <div className="nc-panel">
+            <h2>Fidelity</h2>
+            <FidelityDashboard svc={svc} roomId={findFidelityRoom(svc.rooms())?.roomId ?? null} />
           </div>
         )}
       </main>
