@@ -18,6 +18,16 @@ function rawMessage(id: string, sender: string, body: string, ts = 1): RawEvent 
   };
 }
 
+function rawTyped(id: string, type: string, content: Record<string, unknown>, ts = 1): RawEvent {
+  return {
+    getId: () => id,
+    getSender: () => "@neos-bot:hs",
+    getType: () => type,
+    getContent: () => content,
+    getTs: () => ts,
+  };
+}
+
 // A fake MatrixLike client + a factory that records how it was constructed, so we can assert the
 // service authenticates and threads the token without any real homeserver.
 function makeFake() {
@@ -28,8 +38,13 @@ function makeFake() {
   ];
   const timelines: Record<string, RawEvent[]> = {
     "!a:hs": [rawMessage("$1", "@mansi:hs", "hi", 1), rawMessage("$2", "@neop_aria:hs", "hello", 2)],
+    "!dq:hs": [
+      rawTyped("$p1", "m.neop.proposal", { kind: "flywheel", proposal_id: "s1" }),
+      rawMessage("$noise", "@u:hs", "not a proposal", 3),
+    ],
   };
   const sent: { roomId: string; body: string }[] = [];
+  const sentEvents: { roomId: string; type: string; content: Record<string, unknown> }[] = [];
   const listeners: TimelineListener[] = [];
   const client: MatrixLike = {
     login: vi.fn(async (_type, data) => ({
@@ -48,6 +63,10 @@ function makeFake() {
       sent.push({ roomId, body });
       return { event_id: `$evt-${sent.length}` };
     }),
+    sendEvent: vi.fn(async (roomId, type, content) => {
+      sentEvents.push({ roomId, type, content });
+      return { event_id: `$ce-${sentEvents.length}` };
+    }),
     on: vi.fn((_e: string, l: TimelineListener) => listeners.push(l)),
     off: vi.fn((_e: string, l: TimelineListener) => {
       const i = listeners.indexOf(l);
@@ -59,7 +78,7 @@ function makeFake() {
     return client;
   };
   const emit = (roomId: string, ev: RawEvent) => listeners.forEach((l) => l(ev, { roomId }));
-  return { factory, client, calls, sent, listeners, emit };
+  return { factory, client, calls, sent, sentEvents, listeners, emit };
 }
 
 describe("MatrixService", () => {
@@ -109,6 +128,22 @@ describe("MatrixService", () => {
       ["hello", true],
     ]);
     expect(svc.roomMessages("!missing:hs")).toEqual([]);
+  });
+
+  it("reads custom-typed events and sends custom events", async () => {
+    const { factory, sentEvents } = makeFake();
+    const svc = new MatrixService("https://hs", factory);
+    await svc.login("u", "pw");
+    const proposals = svc.roomEventsOfType("!dq:hs", "m.neop.proposal");
+    expect(proposals).toHaveLength(1); // the m.room.message noise is filtered out
+    expect(proposals[0].content.proposal_id).toBe("s1");
+    const evtId = await svc.sendEvent("!dq:hs", "m.neop.verdict", { proposal_id: "s1", verdict: "approve" });
+    expect(evtId).toBe("$ce-1");
+    expect(sentEvents[0]).toEqual({
+      roomId: "!dq:hs",
+      type: "m.neop.verdict",
+      content: { proposal_id: "s1", verdict: "approve" },
+    });
   });
 
   it("subscribes to new timeline messages and unsubscribes cleanly", async () => {

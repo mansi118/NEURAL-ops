@@ -3,7 +3,11 @@ import { MatrixService } from "./lib/matrixService";
 import { realFactory } from "./lib/realClient";
 import { MATRIX_BASE_URL, APP_NAME } from "./config";
 import ChatView from "./components/ChatView";
+import DecisionQueue from "./components/DecisionQueue";
+import { findDecisionRoom } from "./lib/proposals";
 import { resolveInitialTheme, toggleTheme, persistTheme, applyTheme, type Theme } from "./lib/theme";
+
+type View = "chat" | "queue";
 
 function useTheme(): [Theme, () => void] {
   const [theme, setTheme] = useState<Theme>(() =>
@@ -35,6 +39,7 @@ function BrandMark() {
 export default function App() {
   const [svc] = useState(() => new MatrixService(MATRIX_BASE_URL, realFactory));
   const [theme, flipTheme] = useTheme();
+  const [view, setView] = useState<View>("chat");
   const [user, setUser] = useState("");
   const [password, setPassword] = useState("");
   const [ready, setReady] = useState(false);
@@ -69,10 +74,25 @@ export default function App() {
           <h1>
             <BrandMark /> {APP_NAME}
           </h1>
+          <nav className="nc-nav">
+            <button className={view === "chat" ? "active" : ""} onClick={() => setView("chat")}>
+              Chat
+            </button>
+            <button className={view === "queue" ? "active" : ""} onClick={() => setView("queue")}>
+              Queue
+            </button>
+          </nav>
           <span className="nc-who">{svc.currentUserId()}</span>
           {themeToggle}
         </header>
-        <ChatView svc={svc} />
+        {view === "chat" ? (
+          <ChatView svc={svc} />
+        ) : (
+          <div className="nc-panel">
+            <h2>Decision Queue</h2>
+            <DecisionQueue svc={svc} roomId={findDecisionRoom(svc.rooms())?.roomId ?? null} />
+          </div>
+        )}
       </main>
     );
   }
