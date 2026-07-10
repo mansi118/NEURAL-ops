@@ -1,0 +1,38 @@
+name: nc-web
+
+# Frontend CI — typecheck + unit tests + production build for the nc-web client. Separate from the
+# Python `CI` workflow (which runs tests/test_*.py). Scoped to nc-web changes so it only runs when relevant.
+
+on:
+  push:
+    branches: [main]
+    paths: ["nc-web/**", ".github/workflows/nc-web.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["nc-web/**", ".github/workflows/nc-web.yml"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: nc-web
+
+jobs:
+  build-test:
+    name: nc-web build+test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: nc-web/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      - name: Production build
+        run: npm run build
