@@ -20,7 +20,7 @@ export interface RawEvent {
   getId(): string | undefined;
   getSender(): string | undefined;
   getType(): string;
-  getContent(): { body?: string; msgtype?: string };
+  getContent(): Record<string, unknown>;
   getTs(): number;
 }
 
@@ -39,7 +39,7 @@ export function displayNameFor(userId: string): string {
 export function parseEvent(ev: RawEvent, selfUserId: string | null): ChatMessage | null {
   if (ev.getType() !== "m.room.message") return null;
   const content = ev.getContent();
-  const body = content?.body;
+  const body = typeof content?.body === "string" ? content.body : undefined;
   const eventId = ev.getId();
   const sender = ev.getSender();
   if (!body || !eventId || !sender) return null;

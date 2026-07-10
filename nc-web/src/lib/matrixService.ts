@@ -37,8 +37,20 @@ export interface MatrixLike {
   getRooms(): RoomSummary[];
   getRoom(roomId: string): RoomLike | null;
   sendTextMessage(roomId: string, body: string): Promise<{ event_id: string }>;
+  sendEvent(
+    roomId: string,
+    eventType: string,
+    content: Record<string, unknown>,
+  ): Promise<{ event_id: string }>;
   on(event: string, listener: TimelineListener): void;
   off(event: string, listener: TimelineListener): void;
+}
+
+export interface TypedEvent {
+  eventId: string;
+  sender: string;
+  ts: number;
+  content: Record<string, unknown>;
 }
 
 export interface ClientFactoryOpts {
@@ -110,6 +122,27 @@ export class MatrixService {
       if (msg) out.push(msg);
     }
     return out;
+  }
+
+  /** Custom-typed events in a room's live timeline (e.g. m.neop.proposal) → raw content. */
+  roomEventsOfType(roomId: string, eventType: string): TypedEvent[] {
+    const room = this.require().getRoom(roomId);
+    if (!room) return [];
+    const out: TypedEvent[] = [];
+    for (const ev of room.getLiveTimeline().getEvents()) {
+      if (ev.getType() !== eventType) continue;
+      const eventId = ev.getId();
+      const sender = ev.getSender();
+      if (!eventId || !sender) continue;
+      out.push({ eventId, sender, ts: ev.getTs(), content: ev.getContent() });
+    }
+    return out;
+  }
+
+  /** Send a custom-typed event (e.g. m.neop.verdict) → the event id. */
+  async sendEvent(roomId: string, eventType: string, content: Record<string, unknown>): Promise<string> {
+    const res = await this.require().sendEvent(roomId, eventType, content);
+    return res.event_id;
   }
 
   /** Subscribe to new timeline messages across rooms. Returns an unsubscribe fn. */
