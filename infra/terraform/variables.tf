@@ -352,6 +352,32 @@ variable "wrapper_openrouter_model" {
   type        = string
   default     = "anthropic/claude-3.5-haiku"
 }
+
+# ── Two-model NEop loop (SEAT_MODEL_FAST / SEAT_MODEL_QUALITY) ────────────────────────────────────────────
+# The seat reply path runs a defined Haiku(fast)+Sonnet(quality) loop (pi-neop-runtime seat/loop.ts): Haiku
+# grounds memory + guards the draft, Sonnet writes the answer. These pin the two model ids per provider. They
+# override only the REPLY loop; the task path still rides NRT_MODEL (wrapper_model_id). On amazon-bedrock these
+# are the regional/global inference-profile ids the on-demand Converse invoke needs (bare ids reject).
+variable "wrapper_model_fast" {
+  description = "Bedrock inference-profile id for the FAST tier (Haiku) — memory grounding + draft guard in the seat reply loop."
+  type        = string
+  default     = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+}
+variable "wrapper_model_quality" {
+  description = "Bedrock inference-profile id for the QUALITY tier (Sonnet) — the user-facing answer in the seat reply loop."
+  type        = string
+  default     = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+}
+variable "wrapper_openrouter_model_fast" {
+  description = "OpenRouter FAST-tier id (Haiku) when wrapper_provider=openrouter. Box-verify it's a live pi-ai openrouter id."
+  type        = string
+  default     = "anthropic/claude-3.5-haiku"
+}
+variable "wrapper_openrouter_model_quality" {
+  description = "OpenRouter QUALITY-tier id (Sonnet) when wrapper_provider=openrouter. Box-verify it's a live pi-ai openrouter id."
+  type        = string
+  default     = "anthropic/claude-3.5-sonnet"
+}
 variable "wrapper_palace_mcp_url" {
   description = "The palace /mcp endpoint the wrapper calls — the IN-VPC Cloud Map Convex (e.g. http://convex.<ns>.local:3211/mcp), NOT the external .convex.site (no NAT to reach it)."
   type        = string
