@@ -185,8 +185,12 @@ resource "aws_ecs_task_definition" "wrapper" {
       environment = concat(
         [
           { name = "NEOP_PROVIDER", value = var.wrapper_provider },                                                          # amazon-bedrock (sealed) | openrouter (un-sealed)
-          { name = "NRT_MODEL", value = local.wrapper_is_openrouter ? var.wrapper_openrouter_model : var.wrapper_model_id }, # per-provider model id
-          { name = "AWS_REGION", value = var.region },                                                                       # ap-south-1 (broker also pins it; explicit here)
+          { name = "NRT_MODEL", value = local.wrapper_is_openrouter ? var.wrapper_openrouter_model : var.wrapper_model_id }, # per-provider model id (TASK path)
+          # Two-model REPLY loop: Haiku grounds+guards, Sonnet answers (seat/loop.ts). Overrides NRT_MODEL for
+          # the conversational path only; the task path still uses NRT_MODEL above.
+          { name = "SEAT_MODEL_FAST", value = local.wrapper_is_openrouter ? var.wrapper_openrouter_model_fast : var.wrapper_model_fast },
+          { name = "SEAT_MODEL_QUALITY", value = local.wrapper_is_openrouter ? var.wrapper_openrouter_model_quality : var.wrapper_model_quality },
+          { name = "AWS_REGION", value = var.region }, # ap-south-1 (broker also pins it; explicit here)
           { name = "SEAT_PORT", value = tostring(var.wrapper_port) },
           # Bind 0.0.0.0 (not the code default 127.0.0.1) so the bridge reaches /seat/turn over the peering;
           # the wrapper SG ingress (matrix CIDR:port) + FORWARD_TOKEN are the actual access controls.
