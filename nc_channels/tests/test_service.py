@@ -271,3 +271,46 @@ def test_message_and_verdict_in_one_transaction():
                     on_verdict=lambda t, v: captured.append(v))
     res = svc.process_transaction("txnMix", {"events": [msg_event(), verdict_event()]})
     assert len(res.processed) == 1 and len(res.verdicts) == 1 and len(captured) == 1
+
+
+# ---- verdict forwarding to the seat wrapper's /seat/verdict ----
+
+def test_verdict_url_default_and_route_resolution():
+    from nc_channels.service import verdict_verdict_url
+    base = "http://seat-wrapper.local:8090/seat/turn"
+    # default seat → the default SEAT_URL, path swapped to /seat/verdict
+    assert verdict_verdict_url("aria", base, {}) == "http://seat-wrapper.local:8090/seat/verdict"
+    # a seat with its own route (matched by puppet neop_<seat>) → that route's wrapper
+    routes = {"!room": {"seat_url": "http://recon-wrapper.local:8090/seat/turn", "puppet": "neop_recon"}}
+    assert verdict_verdict_url("recon", base, routes) == "http://recon-wrapper.local:8090/seat/verdict"
+    # an unrouted seat falls back to the default wrapper (which 409s a mismatch — safe)
+    assert verdict_verdict_url("nobody", base, routes) == "http://seat-wrapper.local:8090/seat/verdict"
+    assert verdict_verdict_url("aria", "", {}) is None   # no base configured
+
+
+def test_forward_mode_forwards_verdict_to_seat_wrapper():
+    sent = []
+    def transport(method, url, data, headers):
+        sent.append({"method": method, "url": url, "body": json.loads(data), "headers": headers})
+        return 200, {"status": "ok"}
+    # a FORWARD-mode service (seat_url + forward_token) auto-forwards verdicts — no explicit on_verdict.
+    svc = ASService(make_reg(), handle=orchestrator.handle, classifier=None,
+                    seat_url="http://seat-wrapper.local:8090/seat/turn", forward_token="FWD",
+                    transport=transport)
+    res = svc.process_transaction("txnFwd", {"events": [verdict_event(seat="aria", verdict="approve")]})
+    assert len(res.verdicts) == 1 and len(sent) == 1
+    s = sent[0]
+    assert s["method"] == "POST" and s["url"].endswith("/seat/verdict")
+    assert s["headers"]["Authorization"] == "Bearer FWD"
+    assert s["body"] == {"verdict": "approve", "seat": "aria", "proposalId": "p1", "by": "@mansi:server"}
+
+
+def test_injected_on_verdict_overrides_forwarding():
+    sent = []
+    captured = []
+    svc = ASService(make_reg(), handle=orchestrator.handle, classifier=None,
+                    seat_url="http://seat-wrapper.local:8090/seat/turn", forward_token="FWD",
+                    transport=lambda *a: sent.append(a) or (200, {}),
+                    on_verdict=lambda t, v: captured.append(v))
+    svc.process_transaction("txnOv", {"events": [verdict_event()]})
+    assert len(captured) == 1 and sent == []   # explicit sink wins; no forward
