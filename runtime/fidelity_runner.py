@@ -58,11 +58,12 @@ class PalaceFidelitySeams:
         self.palace_id = palace_id
 
     def load_events(self, tenant, seat):
-        """Read a seat's finished-run shadow_prediction events off the palace run-log (INTERIM store).
-        The harness re-filters via `shadow.is_shadow_event` (defensive). Network only on live use
-        (lazy import of the credential-gated memory seam)."""
+        """Read a seat's finished-run events off the palace run-log (INTERIM store) — BOTH machine
+        shadow_prediction AND human_verdict rows (no kind filter), so the honest blended fidelity
+        (machine + authoritative human) folds in one pass. `signals_from_events` routes by event kind
+        and ignores anything else. Network only on live use (lazy, credential-gated memory seam)."""
         from runtime.memory import get_run_events   # lazy: credential + L4 scope gate only on live use
-        return get_run_events(self.palace_id, seat, kind="shadow_prediction")
+        return get_run_events(self.palace_id, seat)
 
     def load_twin(self, tenant, seat):
         """Read-by-address twin (palace_get_twin) or None. Reuses the canonical memory seam."""

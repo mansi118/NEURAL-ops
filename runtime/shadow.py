@@ -122,11 +122,50 @@ def signal_from_event(ev, *, judge=None, field="decision_style", kind="structura
                          field=field, kind=kind, decision_class=ev.get("class", "selective"))
 
 
+# ── HUMAN VERDICT: a Decision-Queue approve/reject → an AUTHORITATIVE signal ──────────────────────────
+# The other signal source (see docs / fidelity-signal-generation): when a human approves/rejects a NEop's
+# output in the Decision Queue (`m.neop.verdict`), that verdict IS a fidelity signal — authoritative,
+# never synthetic. `human_verdict_event` is the storable run-event shape (persisted via
+# memory.put_run_event, kind="human_verdict"); `signal_from_human_event` folds it back into the
+# `human_signal` the curator already scores. `signal_kind` avoids clobbering the top-level event `kind`
+# discriminator ("human_verdict") with the signal's structural/additive kind.
+
+def human_verdict_event(verdict, *, field="decision_style", kind="structural",
+                        decision_class="selective", proposal_id=None):
+    """Build a HUMAN-VERDICT run-event from a Decision-Queue verdict. `verdict` is 'approve'|'reject'
+    (or a bool). Self-describing so signals_from_events can fold it back into an authoritative human
+    signal; carries proposal_id for provenance."""
+    agreed = verdict is True or verdict == "approve"
+    return {"kind": "human_verdict", "agreed": agreed, "field": field,
+            "signal_kind": kind, "decision_class": decision_class, "proposal_id": proposal_id}
+
+
+def is_human_event(ev) -> bool:
+    """A stored human-verdict run-event (matched on either envelope key, like is_shadow_event)."""
+    return isinstance(ev, dict) and (ev.get("kind") == "human_verdict"
+                                     or ev.get("type") == "human_verdict")
+
+
+def signal_from_human_event(ev):
+    """Fold a stored human-verdict event → an authoritative human signal (no grading — the human already
+    decided). Mirrors the field/kind/class the verdict was recorded with."""
+    return human_signal(bool(ev.get("agreed")),
+                        field=ev.get("field", "decision_style"),
+                        kind=ev.get("signal_kind", "structural"),
+                        decision_class=ev.get("decision_class", "selective"))
+
+
 def signals_from_events(events, *, judge=None, field="decision_style", kind="structural"):
-    """Filter a run's event stream to shadow predictions and grade each. The live harness reads these
-    events off finished runs and feeds the result to `curator.curate` — this is that adapter."""
-    return [signal_from_event(ev, judge=judge, field=field, kind=kind)
-            for ev in (events or []) if is_shadow_event(ev)]
+    """Fold a run's stored events into Curator signals: shadow predictions are GRADED (predicted vs
+    actual), human verdicts pass through as AUTHORITATIVE human signals. Other event kinds are ignored.
+    This is the adapter the live harness feeds to `curator.curate` — the honest blended stream."""
+    out = []
+    for ev in (events or []):
+        if is_shadow_event(ev):
+            out.append(signal_from_event(ev, judge=judge, field=field, kind=kind))
+        elif is_human_event(ev):
+            out.append(signal_from_human_event(ev))
+    return out
 
 
 def recent(signals, k):
