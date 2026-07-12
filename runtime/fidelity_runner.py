@@ -44,31 +44,25 @@ class PalaceFidelitySeams:
     """Live `FidelityLoop` seams over the Convex palace. Drop-in for the in-memory offline seams:
     exposes `load_events(tenant, seat)`, `load_twin(tenant, seat)`, `save_twin(tenant, seat, twin)`.
 
-    LIVE SEAM TOOL NAMES (for the parent to reconcile with the palace `/mcp` dispatch):
-      - EVENTS_TOOL = "palace_get_run_events" — read finished-run shadow_prediction rows for
-        (palaceId, neopId). This tool is NEW (not yet registered server-side); documented here as the
-        run-log reader seam. Expected result: a list of event rows, or `{events|results: [...]}`,
-        each row a core.py shadow_prediction shape ({kind|type, predicted, actual, class}).
+    LIVE SEAM TOOL NAMES (reconciled with the palace `/mcp` dispatch):
+      - load_events reuses `runtime.memory.get_run_events` → `palace_get_run_events`, the INTERIM
+        run-log store (palace #31): finished-run shadow_prediction rows for (palaceId, neopId),
+        newest-first + bounded. INTERIM by design — the durable event corpus migrates to ClickHouse
+        when the comms tier lands (Track 2). Each row is a core.py shadow_prediction shape
+        ({kind|type, predicted, actual, class}).
       - twin read/upsert reuse the EXISTING `runtime.memory.get_twin` / `put_twin` (which post
         `palace_get_twin` / `palace_put_twin` and own the twin marshalling) — not re-implemented here.
     """
-
-    EVENTS_TOOL = "palace_get_run_events"
 
     def __init__(self, palace_id):
         self.palace_id = palace_id
 
     def load_events(self, tenant, seat):
-        """Read a seat's finished-run shadow_prediction events off the Convex run-log. Returns a list
-        the harness re-filters via `shadow.is_shadow_event` (defensive: the server may return other
-        event kinds). Only touches the network here (lazy `_post`)."""
-        from runtime.memory import _post   # lazy: import cost + credential + L4 scope gate only on live use
-        data = _post(self.EVENTS_TOOL, self.palace_id, seat, {"kind": "shadow_prediction"})
-        if isinstance(data, dict):
-            rows = data.get("events") or data.get("results") or []
-        else:
-            rows = data or []
-        return list(rows)
+        """Read a seat's finished-run shadow_prediction events off the palace run-log (INTERIM store).
+        The harness re-filters via `shadow.is_shadow_event` (defensive). Network only on live use
+        (lazy import of the credential-gated memory seam)."""
+        from runtime.memory import get_run_events   # lazy: credential + L4 scope gate only on live use
+        return get_run_events(self.palace_id, seat, kind="shadow_prediction")
 
     def load_twin(self, tenant, seat):
         """Read-by-address twin (palace_get_twin) or None. Reuses the canonical memory seam."""
