@@ -164,20 +164,26 @@ def run_shadow_pass(loop, tenant, seats, sink, *, sustained_days=0, window=None)
 
 def _seams_from_env(env):
     """Construct the live seams + loop from env (integration-mode). PALACE_ID is baked; seats come
-    from FIDELITY_SEATS (comma-separated). The judge stays an INJECTED seam here: there is no shared
-    Nova client in the Python runtime (only proof tools like tools/nova_generate_probe.py), so wiring
-    it live is a documented follow-up — `runtime.judge.make_judge(invoke)` with an in-VPC Nova
-    `invoke(prompt)->str`. Left as None so a live cadence runs the free lexical/exact grader and simply
-    leaves the ambiguous middle UNSCORED (never fabricated)."""
+    from FIDELITY_SEATS (comma-separated). The JUDGE is Claude Haiku on Bedrock (NOT Nova) — the cheap
+    fast tier of the Haiku+Sonnet standard, wired via `runtime.judge.make_judge(converse_invoke())`.
+    It is enabled only when AWS_BEARER_TOKEN_BEDROCK is set (fail-closed on a blank token); with no
+    token the judge is None, so a live cadence runs the free lexical/exact grader and leaves the
+    ambiguous middle UNSCORED (never fabricated). FIDELITY_JUDGE_MODEL overrides the model. Building the
+    judge is inert (no network) — the Converse call happens only when the grader consults it."""
     from runtime.fidelity_harness import FidelityLoop
+    from runtime.judge import make_judge
+    from runtime.bedrock import converse_invoke, DEFAULT_JUDGE_MODEL
     palace_id = (env.get("PALACE_ID") or "").strip()
     if not palace_id:
         raise SystemExit("PALACE_ID is required (the tenant/palaceId to run the shadow pass for)")
     seats = [s.strip() for s in (env.get("FIDELITY_SEATS") or "").split(",") if s.strip()]
     if not seats:
         raise SystemExit("FIDELITY_SEATS is required (comma-separated seat/neopId list)")
+    bearer = (env.get("AWS_BEARER_TOKEN_BEDROCK") or "").strip()
+    judge = make_judge(converse_invoke(model_id=env.get("FIDELITY_JUDGE_MODEL") or DEFAULT_JUDGE_MODEL)) \
+        if bearer else None
     seams = PalaceFidelitySeams(palace_id)
-    loop = FidelityLoop(seams.load_twin, seams.save_twin, seams.load_events, judge=None)
+    loop = FidelityLoop(seams.load_twin, seams.save_twin, seams.load_events, judge=judge)
     return loop, palace_id, seats
 
 
