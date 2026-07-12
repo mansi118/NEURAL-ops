@@ -9,7 +9,8 @@ import sys, pathlib
 R = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(R))
 from runtime.shadow import (grade, jaccard, shadow_signal, human_signal,  # noqa: E402
-                            fidelity_breakdown, signals_from_events, is_shadow_event, recent)
+                            fidelity_breakdown, signals_from_events, is_shadow_event, recent,
+                            human_verdict_event, is_human_event, signal_from_human_event)
 from runtime.curator import curate, fidelity  # noqa: E402
 
 
@@ -146,6 +147,40 @@ def test_determinism():
     b = shadow_signal("we should ship it today", "lets ship it soon", judge=judge)
     assert a == b
     print("PASS test_determinism")
+
+
+def test_human_verdict_event_shape():
+    ap = human_verdict_event("approve", proposal_id="p1")
+    assert ap["kind"] == "human_verdict" and ap["agreed"] is True and ap["proposal_id"] == "p1"
+    assert ap["signal_kind"] == "structural"                      # not clobbering the top-level `kind`
+    assert human_verdict_event("reject")["agreed"] is False
+    assert human_verdict_event(True)["agreed"] is True            # bool accepted too
+    assert is_human_event(ap) and not is_shadow_event(ap)
+    print("PASS test_human_verdict_event_shape")
+
+
+def test_signal_from_human_event_is_authoritative():
+    s = signal_from_human_event(human_verdict_event("approve"))
+    assert s["method"] == "human" and s["authoritative"] is True and s["agreed"] is True
+    assert signal_from_human_event(human_verdict_event("reject"))["agreed"] is False
+    print("PASS test_signal_from_human_event_is_authoritative")
+
+
+def test_signals_from_events_folds_shadow_and_human():
+    # a mixed stream: one shadow_prediction (graded) + one human_verdict (authoritative) → both fold,
+    # and the breakdown splits them honestly (never inflating the human number with machine grades).
+    events = [
+        {"kind": "shadow_prediction", "predicted": "approve", "actual": "approve"},  # exact → scored, no judge
+        human_verdict_event("approve"),
+        human_verdict_event("reject"),
+        {"kind": "twin_written"},                                 # ignored (not a signal event)
+    ]
+    signals = signals_from_events(events)                         # no judge → exact machine + human
+    br = fidelity_breakdown(signals)
+    assert br["n_human"] == 2 and br["human_only"] == 0.5         # one approve, one reject
+    assert br["n_machine"] == 1 and br["machine_only"] == 1.0     # the exact-match shadow pair
+    assert br["n_scored"] == br["n_human"] + br["n_machine"]
+    print("PASS test_signals_from_events_folds_shadow_and_human")
 
 
 if __name__ == "__main__":
