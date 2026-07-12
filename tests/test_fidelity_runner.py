@@ -136,7 +136,7 @@ def test_localfile_sink_no_wallclock_without_now():
 def test_live_seams_are_inert_at_construction():
     # Construction touches nothing: no network, no import of memory internals, no env needed.
     seams = PalaceFidelitySeams("palaceX")
-    assert seams.palace_id == "palaceX" and seams.EVENTS_TOOL == "palace_get_run_events"
+    assert seams.palace_id == "palaceX"   # palaceId baked; load_events posts palace_get_run_events on use
 
     from runtime.memory import MemPalaceError
     saved = dict(os.environ)

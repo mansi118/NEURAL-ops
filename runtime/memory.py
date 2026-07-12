@@ -173,3 +173,47 @@ def put_twin(tenant, seat, twin):
     resp = _post("palace_put_twin", tenant, seat, twin_put_params(twin))
     return {"status": (resp or {}).get("status", "ok"), "twin_id": f"{tenant}:{seat}",
             "version": twin.get("version"), "maturity": twin.get("maturity")}
+
+
+# --- run events: INTERIM shadow-prediction store for the fidelity clock (Track 3) ---------
+# Bounded, own-seat rows in the palace `run_events` table, ADDRESSED by (palaceId, neopId) — the read
+# side of the shadow-fidelity runner and the write side for whoever persists a shadow_prediction.
+# INTERIM by design: the durable event corpus MOVES to ClickHouse when the comms tier lands (Track 2);
+# this is the stopgap so the fidelity clock can warm early. Two own-seat server tools (gated recall/
+# remember, palace #31):
+#     palace_get_run_events {kind?, limit?}            -> {events, count}   (newest-first, bounded)
+#     palace_put_run_event  {kind, event, runId?, ts?} -> {status, trimmed} (blind append, per-seat cap)
+# Marshalling below is PURE + offline-gradeable; only _post touches the network.
+
+
+def run_event_params(event, kind="shadow_prediction", run_id=None, ts=None):
+    """palace_put_run_event params. seat (neopId) rides the _post envelope; runId/ts are optional."""
+    params = {"kind": kind, "event": event}
+    if run_id is not None:
+        params["runId"] = run_id
+    if ts is not None:
+        params["ts"] = ts
+    return params
+
+
+def events_from_response(resp):
+    """get_run_events response is {events: [...], count}; return the list (or [] — never crash)."""
+    ev = (resp or {}).get("events")
+    return list(ev) if isinstance(ev, list) else []
+
+
+def get_run_events(tenant, seat, kind=None, limit=None):
+    """Read a seat's finished-run events (newest-first, bounded) -> [event]. INTERIM palace store."""
+    params = {}
+    if kind is not None:
+        params["kind"] = kind
+    if limit is not None:
+        params["limit"] = limit
+    return events_from_response(_post("palace_get_run_events", tenant, seat, params))
+
+
+def put_run_event(tenant, seat, event, kind="shadow_prediction", run_id=None, ts=None):
+    """Blind append of one run event -> {status, trimmed}. The palace trims to a per-seat cap (INTERIM
+    bound; ClickHouse holds the full corpus post-Track-2)."""
+    resp = _post("palace_put_run_event", tenant, seat, run_event_params(event, kind, run_id, ts))
+    return {"status": (resp or {}).get("status", "ok"), "trimmed": (resp or {}).get("trimmed", 0)}
