@@ -1,7 +1,8 @@
 """LLM-as-judge for shadow-mode fidelity — the pluggable grader `shadow.grade(judge=...)` consults on
 the ambiguous middle. This module is PURE except for an injected `invoke(prompt) -> str` (the model
-call): Nova in-VPC live, a stub offline. It builds the prompt, parses the score, and wraps both into
-the `judge(predicted, actual) -> float | None` callable shadow.py expects.
+call): **Claude Haiku on Bedrock** in-VPC live (via `runtime.bedrock.converse_invoke`; the cheap fast
+tier — NOT Nova), a stub offline. It builds the prompt, parses the score, and wraps both into the
+`judge(predicted, actual) -> float | None` callable shadow.py expects.
 
 Honesty over coverage: a parse failure or a model error returns None (abstain), and `shadow.grade`
 turns that into an UNSCORED signal — the judge never fabricates agreement from a bad or empty grade.

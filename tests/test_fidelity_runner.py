@@ -170,6 +170,26 @@ def test_clickhouse_sink_is_a_loud_seam():
     print("PASS test_clickhouse_sink_is_a_loud_seam")
 
 
+def test_seams_from_env_wires_claude_judge_when_bearer_set():
+    # With a bearer token present, the judge is the Claude (Haiku) Converse judge — inert until consulted
+    # (no network at construction), so we can assert it's wired without dialing Bedrock.
+    from runtime.fidelity_runner import _seams_from_env
+    loop, pid, seats = _seams_from_env(
+        {"PALACE_ID": "p1", "FIDELITY_SEATS": "aria,recon", "AWS_BEARER_TOKEN_BEDROCK": "tok"})
+    assert pid == "p1" and seats == ["aria", "recon"]
+    assert callable(loop.judge), "a Claude judge must be wired when the bearer token is set"
+    print("PASS test_seams_from_env_wires_claude_judge_when_bearer_set")
+
+
+def test_seams_from_env_no_judge_without_bearer():
+    # Fail-closed: no bearer token → no judge, so the grader leaves the ambiguous middle UNSCORED
+    # rather than dialing a model with no credentials.
+    from runtime.fidelity_runner import _seams_from_env
+    loop, pid, seats = _seams_from_env({"PALACE_ID": "p1", "FIDELITY_SEATS": "aria"})
+    assert loop.judge is None, "no bearer token must mean no judge (unscored, never a blind call)"
+    print("PASS test_seams_from_env_no_judge_without_bearer")
+
+
 if __name__ == "__main__":
     for n, f in sorted(globals().items()):
         if n.startswith("test_") and callable(f):
