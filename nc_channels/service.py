@@ -82,9 +82,11 @@ class ASService:
         # seat_url + puppet_localpart (so a single-seat deploy is unchanged / backward-compatible).
         self.seat_routes = seat_routes or {}
         # Decision-Queue verdict sink (fidelity signal). The bridge DETECTS m.neop.verdict events but has
-        # NO palace access — persistence is in-VPC. `on_verdict(tenant, verdict)` is the injected sink the
-        # deploy wires to an in-VPC persister (the seat wrapper); None ⇒ detected + counted, not persisted.
-        self._on_verdict = on_verdict
+        # NO palace access — persistence is in-VPC. Default (forward mode, i.e. seat_url + forward_token set):
+        # forward the verdict to the seat wrapper's /seat/verdict (the in-VPC persister). An injected
+        # on_verdict overrides (tests). With neither, a verdict is detected + counted but not persisted.
+        self._on_verdict = on_verdict or (
+            self.forward_verdict if (self.seat_url and self.forward_token) else None)
 
     # ---- inbound auth (offline-verifiable) ----
     def verify_hs_token(self, presented: Optional[str]) -> bool:
@@ -244,6 +246,34 @@ class ASService:
             raw = r.read().decode("utf-8")
             return r.status, (json.loads(raw) if raw.strip() else {})
 
+    # ---- verdict forwarding (Decision-Queue approve/reject → the seat wrapper's /seat/verdict) ----
+    def forward_verdict(self, tenant: str, verdict: dict) -> dict:
+        """POST a detected m.neop.verdict to the OWNING seat's /seat/verdict (the in-VPC persister). The
+        bridge has no palace access, so it hands the verdict to the seat that does. Routed by verdict.seat
+        → that seat's wrapper (default SEAT_URL, or the SEAT_ROUTES_JSON route whose puppet is neop_<seat>).
+        Same FORWARD_TOKEN auth + injectable transport as _seat_forward; request build is pure + tested."""
+        url = verdict_verdict_url(verdict.get("seat"), self.seat_url, self.seat_routes)
+        if not url:
+            raise RuntimeError("verdict forward needs a seat_url (SEAT_URL) — refusing (fail-closed)")
+        if not self.forward_token:
+            raise RuntimeError("verdict forward needs forward_token (bridge→seat auth) — refusing")
+        body = {
+            "verdict": verdict.get("verdict"),
+            "seat": verdict.get("seat"),
+            "proposalId": verdict.get("proposal_id") or verdict.get("proposalId"),
+            "by": verdict.get("by"),
+        }
+        headers = {"Content-Type": "application/json",
+                   "Authorization": f"Bearer {self.forward_token}"}
+        data = json.dumps(body).encode("utf-8")
+        if self._transport is not None:
+            return self._transport("POST", url, data, headers)
+        import urllib.request
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=15) as r:     # pragma: no cover  (box-proven, not unit)
+            raw = r.read().decode("utf-8")
+            return r.status, (json.loads(raw) if raw.strip() else {})
+
     def _seat_forward(self, raw: dict) -> dict:
         """B-fwd (reflect=False): forward a message to the Hermes seat wrapper and return its ReplyEnvelope.
 
@@ -283,3 +313,24 @@ class ASService:
 def _matches_namespace(mxid: str, regex: str) -> bool:
     import re
     return re.fullmatch(regex, mxid) is not None
+
+
+def verdict_verdict_url(seat, default_seat_url, seat_routes=None):
+    """Resolve the /seat/verdict URL for a verdict's seat (pure; unit-tested). Routes by seat → the seat's
+    wrapper: the SEAT_ROUTES_JSON route whose puppet is `neop_<seat>`, else the default SEAT_URL. The seat
+    URLs are /seat/turn endpoints, so we swap the path to /seat/verdict. None if no base URL is configured.
+    A verdict whose seat matches no route falls back to the default wrapper, which 409s a mismatch — safe."""
+    turn_url = default_seat_url
+    if seat and seat_routes:
+        want = f"neop_{seat}"
+        for route in seat_routes.values():
+            puppet = (route or {}).get("puppet") or ""
+            puppet = puppet.lstrip("@").split(":", 1)[0]        # "@neop_recon:hs" or "neop_recon" → "neop_recon"
+            if puppet == want and route.get("seat_url"):
+                turn_url = route["seat_url"]
+                break
+    if not turn_url:
+        return None
+    if "/seat/turn" in turn_url:
+        return turn_url.replace("/seat/turn", "/seat/verdict")
+    return turn_url.rstrip("/") + "/seat/verdict"
