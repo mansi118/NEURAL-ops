@@ -236,3 +236,38 @@ def test_transaction_to_reply_round_trip(tmp_path):
     send = svc.reply_send(raw["conversation_id"], result, "outE")
     assert send.path.endswith("/outE")
     assert send.body["msgtype"] == "m.text"
+
+
+# ---- Decision-Queue verdict routing (fidelity signal) ----
+
+def verdict_event(proposal_id="p1", verdict="approve", seat="aria", by="@mansi:server"):
+    return {"type": "m.neop.verdict", "event_id": "$v1", "room_id": "!dq:server",
+            "sender": "@alice:server",
+            "content": {"proposal_id": proposal_id, "verdict": verdict, "seat": seat, "by": by}}
+
+
+def test_process_transaction_routes_verdict_to_injected_sink():
+    captured = []
+    svc = ASService(make_reg(), handle=orchestrator.handle,
+                    classifier=orchestrator.recorded_classifier({"echo": ("echo", 0.95)}),
+                    on_verdict=lambda tenant, v: captured.append((tenant, v)))
+    res = svc.process_transaction("txnV", {"events": [verdict_event()]})
+    assert res.processed == [] and len(res.verdicts) == 1
+    # the sink gets the tenant + the parsed verdict (seat carried so it keys the right twin)
+    assert captured == [("neuraledge",
+                         {"proposal_id": "p1", "verdict": "approve", "seat": "aria", "by": "@mansi:server"})]
+
+
+def test_verdict_without_sink_is_detected_not_persisted():
+    svc = make_service()   # no on_verdict → the bridge has no palace access; detected + counted only
+    res = svc.process_transaction("txnV2", {"events": [verdict_event(verdict="reject")]})
+    assert len(res.verdicts) == 1 and res.verdicts[0]["verdict"] == "reject"
+
+
+def test_message_and_verdict_in_one_transaction():
+    captured = []
+    svc = ASService(make_reg(), handle=orchestrator.handle,
+                    classifier=orchestrator.recorded_classifier({"echo": ("echo", 0.95)}),
+                    on_verdict=lambda t, v: captured.append(v))
+    res = svc.process_transaction("txnMix", {"events": [msg_event(), verdict_event()]})
+    assert len(res.processed) == 1 and len(res.verdicts) == 1 and len(captured) == 1

@@ -88,6 +88,28 @@ def is_routable_message(event: dict, *, as_localparts: Iterable[str] = ()) -> bo
     return local not in set(as_localparts)
 
 
+VERDICT_TYPE = "m.neop.verdict"
+
+
+def verdict_from_event(event: dict) -> Optional[dict]:
+    """Parse an `m.neop.verdict` Decision-Queue event → {proposal_id, verdict, seat, by} or None.
+
+    The other fidelity signal source (see fidelity-signal-generation): a human approve/reject on a NEop's
+    output. Only `approve`/`reject` are valid, and the `seat` (the originating NEop the nc-web contract
+    echoes via encodeVerdict) MUST be present — a verdict we can't key to a seat is not a fidelity signal,
+    so we return None and the caller skips it. PURE: parse only; persistence is the caller's injected sink
+    (the bridge itself has no palace access — it routes the verdict to an in-VPC sink)."""
+    if not isinstance(event, dict) or event.get("type") != VERDICT_TYPE:
+        return None
+    content = event.get("content") or {}
+    verdict = content.get("verdict")
+    seat = content.get("seat")
+    if verdict not in ("approve", "reject") or not (isinstance(seat, str) and seat.strip()):
+        return None
+    return {"proposal_id": content.get("proposal_id"), "verdict": verdict,
+            "seat": seat, "by": content.get("by")}
+
+
 def matrix_message_to_raw(event: dict, *, tenant: str, token: str, hmac_key: str) -> dict:
     """Map an `m.room.message` event → the gateway's `raw` (filter with is_routable_message first).
 

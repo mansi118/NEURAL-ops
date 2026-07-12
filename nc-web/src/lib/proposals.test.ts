@@ -47,13 +47,25 @@ describe("proposals model", () => {
     expect(p).toMatchObject({ id: "$fallback", kind: "unknown", title: "something" });
   });
 
-  it("encodes a verdict with optional author", () => {
-    expect(encodeVerdict("p1", "approve", "@mansi:hs")).toEqual({
+  it("encodes a verdict with optional seat + author", () => {
+    expect(encodeVerdict("p1", "approve", "aria", "@mansi:hs")).toEqual({
       proposal_id: "p1",
       verdict: "approve",
+      seat: "aria",
       by: "@mansi:hs",
     });
+    // seat echoes the proposal's originating NEop so the bridge can key the fidelity signal
+    expect(encodeVerdict("p1", "reject", "recon")).toEqual({
+      proposal_id: "p1",
+      verdict: "reject",
+      seat: "recon",
+    });
     expect(encodeVerdict("p1", "reject")).toEqual({ proposal_id: "p1", verdict: "reject" });
+  });
+
+  it("parseProposal carries the originating seat (top-level or governance action.seat)", () => {
+    expect(parseProposal(pe({ kind: "vault", seat: "aria", record: { key: "k" } }))?.seat).toBe("aria");
+    expect(parseProposal(pe({ kind: "governance", action: { name: "send", seat: "recon" } }))?.seat).toBe("recon");
   });
 
   it("finds the decision room by name", () => {

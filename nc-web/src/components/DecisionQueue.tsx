@@ -27,7 +27,7 @@ export default function DecisionQueue({ svc, roomId }: { svc: MatrixService; roo
     if (!roomId) return;
     setResolved((r) => ({ ...r, [p.id]: verdict })); // optimistic
     try {
-      await svc.sendEvent(roomId, VERDICT_TYPE, encodeVerdict(p.id, verdict, svc.currentUserId() ?? undefined));
+      await svc.sendEvent(roomId, VERDICT_TYPE, encodeVerdict(p.id, verdict, p.seat, svc.currentUserId() ?? undefined));
     } catch {
       setResolved((r) => {
         const next = { ...r };
