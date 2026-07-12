@@ -4,17 +4,16 @@ Verifies the ARTIFACT (not the engine, which is merged + tested in test_approval
 builds a valid ApprovalPolicy, build_approval accepts it (instance + dict, ENFORCE + REPORT_ONLY +
 integration), and `acp.approval.decide` / `approval_mode.evaluate` return the decisions the SPEC
 (docs/decisions/approval-policy-v1.md) prescribes over a representative action TABLE. If an `opa`
-binary is on PATH, the same table is checked against the .rego mirror; otherwise that test SKIPS.
+binary is on PATH, the same table is checked against the .rego mirror; otherwise that check SKIPS.
 
-Pure + offline. Run: python3 -m pytest tests/test_approval_policy_v1.py -q
+Pure + offline, self-running (repo convention — the CI runner does `python3 tests/<file>.py`; there
+is no pytest in CI). Run: python3 tests/test_approval_policy_v1.py
 """
 import json
 import pathlib
 import shutil
 import subprocess
 import sys
-
-import pytest
 
 R = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(R))
@@ -74,6 +73,7 @@ def test_load_policy_v1_is_valid_policy():
     cfg = policy_config_v1()
     cfg["scope_modes"]["command"] = "allow"
     assert policy_config_v1()["scope_modes"]["command"] == "deny"
+    print("PASS test_load_policy_v1_is_valid_policy")
 
 
 def test_build_approval_accepts_instance_and_dict():
@@ -82,6 +82,7 @@ def test_build_approval_accepts_instance_and_dict():
     b_dict = build_approval(policy_config_v1(), grantor=OPERATOR_NEOP)
     assert isinstance(b_inst, ApprovalBroker) and isinstance(b_dict, ApprovalBroker)
     assert b_inst.mode == ENFORCE and b_inst.grantor == OPERATOR_NEOP
+    print("PASS test_build_approval_accepts_instance_and_dict")
 
 
 def test_build_approval_report_only_and_integration_variants():
@@ -95,28 +96,34 @@ def test_build_approval_report_only_and_integration_variants():
     assert isinstance(integ, ApprovalBroker)
     # governance OFF is byte-identical to today (dispatch(approval=None)).
     assert build_approval(None) is None
+    print("PASS test_build_approval_report_only_and_integration_variants")
 
 
 # --- the engine over the SPEC's action table --------------------------------------------------------
-@pytest.mark.parametrize("scope,name,expected,reason_sub,note", TABLE)
-def test_decide_matches_spec(scope, name, expected, reason_sub, note):
-    decision, reason = decide(_action(scope, name), load_policy_v1())
-    assert decision == expected, (scope, name, decision, expected, note)
-    assert reason_sub in reason, (scope, name, reason, reason_sub, note)
+def test_decide_matches_spec():
+    pol = load_policy_v1()
+    for scope, name, expected, reason_sub, note in TABLE:
+        decision, reason = decide(_action(scope, name), pol)
+        assert decision == expected, (scope, name, decision, expected, note)
+        assert reason_sub in reason, (scope, name, reason, reason_sub, note)
+    print("PASS test_decide_matches_spec")
 
 
 def test_table_covers_all_three_tiers():
     tiers = {row[2] for row in TABLE}
     assert {ALLOW, DENY, AWAIT} <= tiers
     assert any(r[3] == "hard_deny" for r in TABLE)   # at least one GW-5 hard-deny
+    print("PASS test_table_covers_all_three_tiers")
 
 
-@pytest.mark.parametrize("scope,name,expected,reason_sub,note", TABLE)
-def test_evaluate_enforce_equals_decide(scope, name, expected, reason_sub, note):
+def test_evaluate_enforce_equals_decide():
     # approval_mode.evaluate in ENFORCE = the raw engine decision.
-    eff, audit = approval_mode.evaluate(_action(scope, name), load_policy_v1(), mode=approval_mode.ENFORCE)
-    assert eff == expected, (scope, name, eff, expected, note)
-    assert audit["enforced"] is True and audit["decision"] == expected
+    pol = load_policy_v1()
+    for scope, name, expected, reason_sub, note in TABLE:
+        eff, audit = approval_mode.evaluate(_action(scope, name), pol, mode=approval_mode.ENFORCE)
+        assert eff == expected, (scope, name, eff, expected, note)
+        assert audit["enforced"] is True and audit["decision"] == expected
+    print("PASS test_evaluate_enforce_equals_decide")
 
 
 def test_evaluate_report_only_shadows_the_deny():
@@ -124,6 +131,7 @@ def test_evaluate_report_only_shadows_the_deny():
     eff, audit = approval_mode.evaluate(_action("tool", "palace_delete"), load_policy_v1(),
                                         mode=approval_mode.REPORT_ONLY)
     assert eff == ALLOW and audit["enforced"] is False and audit["would"] == DENY
+    print("PASS test_evaluate_report_only_shadows_the_deny")
 
 
 # --- Rego parity (skips cleanly when opa is not on PATH) --------------------------------------------
@@ -136,11 +144,21 @@ def _opa_decision(opa, scope, name):
     return doc["result"][0]["expressions"][0]["value"]
 
 
-@pytest.mark.parametrize("scope,name,expected,reason_sub,note", TABLE)
-def test_rego_parity_with_python_engine(scope, name, expected, reason_sub, note):
+def test_rego_parity_with_python_engine():
     opa = shutil.which("opa")
     if not opa:
-        pytest.skip("opa binary not on PATH — Rego parity sign-off skipped (not failed)")
-    rego_decision = _opa_decision(opa, scope, name)
-    py_decision, _ = decide(_action(scope, name), load_policy_v1())
-    assert rego_decision == py_decision == expected, (scope, name, rego_decision, py_decision, expected)
+        print("SKIP test_rego_parity_with_python_engine (opa not on PATH — Rego sign-off skipped, not failed)")
+        return
+    pol = load_policy_v1()
+    for scope, name, expected, reason_sub, note in TABLE:
+        rego_decision = _opa_decision(opa, scope, name)
+        py_decision, _ = decide(_action(scope, name), pol)
+        assert rego_decision == py_decision == expected, (scope, name, rego_decision, py_decision, expected)
+    print("PASS test_rego_parity_with_python_engine")
+
+
+if __name__ == "__main__":
+    for _n, _f in sorted(globals().items()):
+        if _n.startswith("test_") and callable(_f):
+            _f()
+    print("ALL APPROVAL-POLICY-V1 TESTS PASS")
