@@ -48,6 +48,7 @@ class OutboundSend:
 @dataclass
 class TransactionResult:
     processed: List[dict] = field(default_factory=list)   # raws handed to handle()
+    verdicts: List[dict] = field(default_factory=list)    # m.neop.verdict events routed to on_verdict
     skipped: int = 0
     deduped: bool = False
 
@@ -57,7 +58,8 @@ class ASService:
 
     def __init__(self, reg: ASRegistration, *, handle: Callable, classifier,
                  hs_base_url: str = "http://localhost:8008", transport: Optional[Callable] = None,
-                 seat_url: Optional[str] = None, forward_token: str = "", seat_routes: Optional[dict] = None):
+                 seat_url: Optional[str] = None, forward_token: str = "", seat_routes: Optional[dict] = None,
+                 on_verdict: Optional[Callable] = None):
         if not (reg.tenant and reg.tenant.strip()):
             raise ValueError("AS registration needs a tenant (one AS per tenant, CA-5)")
         if not reg.hs_token:
@@ -79,6 +81,10 @@ class ASService:
         # Multi-seat routing: room_id -> {"seat_url","puppet"}. Rooms not listed use the default
         # seat_url + puppet_localpart (so a single-seat deploy is unchanged / backward-compatible).
         self.seat_routes = seat_routes or {}
+        # Decision-Queue verdict sink (fidelity signal). The bridge DETECTS m.neop.verdict events but has
+        # NO palace access — persistence is in-VPC. `on_verdict(tenant, verdict)` is the injected sink the
+        # deploy wires to an in-VPC persister (the seat wrapper); None ⇒ detected + counted, not persisted.
+        self._on_verdict = on_verdict
 
     # ---- inbound auth (offline-verifiable) ----
     def verify_hs_token(self, presented: Optional[str]) -> bool:
@@ -106,6 +112,15 @@ class ASService:
             return TransactionResult(deduped=True)
         res = TransactionResult()
         for event in transaction.get("events", []):
+            # Decision-Queue VERDICT (m.neop.verdict): a human approve/reject → a fidelity signal. Caught
+            # BEFORE the routable-message filter (a verdict is not m.room.message, so it would otherwise be
+            # skipped). Routed to the injected in-VPC sink; the bridge itself never writes the palace.
+            verdict = ma.verdict_from_event(event)
+            if verdict is not None:
+                if self._on_verdict is not None:
+                    self._on_verdict(self.reg.tenant, verdict)
+                res.verdicts.append(verdict)
+                continue
             # Loop guard: skip non-messages/the AS sender (is_routable_message) AND any sender inside the AS
             # user namespace — the puppet replies (e.g. @neop_aria) are our OWN traffic; without this the
             # seat's answer would be re-forwarded to itself in an infinite loop. sender_localpart (neos-bot)

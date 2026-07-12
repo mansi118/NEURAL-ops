@@ -179,3 +179,26 @@ def test_outbound_edit_shape():
 def test_stream_to_text_rejoins_on_space():
     assert ma.stream_to_text({"stream": ["hello", "there", "world"]}) == "hello there world"
     assert ma.stream_to_text({}) == ""
+
+
+# ---- Decision-Queue verdict parsing (fidelity signal source) ----
+
+def test_verdict_from_event_valid():
+    ev = {"type": "m.neop.verdict",
+          "content": {"proposal_id": "p1", "verdict": "approve", "seat": "aria", "by": "@ml:s"}}
+    assert ma.verdict_from_event(ev) == {"proposal_id": "p1", "verdict": "approve", "seat": "aria", "by": "@ml:s"}
+
+
+@pytest.mark.parametrize("content", [
+    {"verdict": "approve"},                       # no seat → can't key the signal
+    {"verdict": "approve", "seat": "   "},         # blank seat
+    {"verdict": "maybe", "seat": "aria"},          # not approve/reject
+    {"seat": "aria"},                              # no verdict
+])
+def test_verdict_from_event_rejects_unusable(content):
+    assert ma.verdict_from_event({"type": "m.neop.verdict", "content": content}) is None
+
+
+def test_verdict_from_event_ignores_non_verdict_types():
+    assert ma.verdict_from_event({"type": "m.room.message", "content": {"verdict": "approve", "seat": "aria"}}) is None
+    assert ma.verdict_from_event({}) is None
