@@ -21,6 +21,7 @@ from neop_jcode_adapter.palace_mcp_shim import (
     ScopeSpoofRejected,
     ToolRejected,
     _canonical,
+    _identity_claim,
     handle_message,
     run_stdio,
 )
@@ -165,10 +166,32 @@ def test_signing_round_trips_and_verifies():
         pub.verify(shim_mod._unb64(headers["X-NEop-Signature"]), _canonical(tampered))
 
 
+def test_identity_claim_verifies_and_binds_scope_and_tool():
+    """Gate D: X-NEop-Identity signs (palaceId, neopId, tool) — the canonicalization-safe claim the
+    palace verifies. It must verify against the pubkey and fail if ANY of the three bytes are altered."""
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    s, _, _ = make_shim()
+    s._signer = shim_mod.Ed25519Signer.generate()
+    _, headers = s.build_request("palace_search", {"query": "x"})
+    assert "X-NEop-Identity" in headers and "X-NEop-Pubkey" in headers
+    pub = Ed25519PublicKey.from_public_bytes(shim_mod._unb64(headers["X-NEop-Pubkey"]))
+    # good claim verifies (matches the exact bytes the server will reconstruct)
+    pub.verify(shim_mod._unb64(headers["X-NEop-Identity"]), _identity_claim(PAL, SEAT, "palace_search"))
+    # a forged seat / palace / tool in the reconstructed claim must fail
+    for bad in (_identity_claim(PAL, "recon", "palace_search"),
+                _identity_claim("pal_other", SEAT, "palace_search"),
+                _identity_claim(PAL, SEAT, "palace_remember")):
+        with pytest.raises(Exception):
+            pub.verify(shim_mod._unb64(headers["X-NEop-Identity"]), bad)
+
+
 def test_no_signer_means_no_signature_headers_but_still_functional():
     s, sent, _ = make_shim()  # no signing_key_ref → no signer
     body, headers = s.build_request("palace_search", {"query": "x"})
     assert "X-NEop-Signature" not in headers
+    assert "X-NEop-Identity" not in headers
     assert body["palaceId"] == PAL  # scope still enforced
 
 
