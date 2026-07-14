@@ -148,6 +148,14 @@ def _canonical(body: dict) -> bytes:
     return json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+def _identity_claim(palace_id: str, neop_id: str, tool: str) -> bytes:
+    """The Gate-D identity claim the server VERIFIES: the env-baked (palaceId, neopId) + tool, newline
+    joined. Deliberately NOT the JSON body — only these three ALL-STRING, non-model-controlled fields, so
+    the bytes are reconstructed identically in JS server-side (no Python↔JS JSON canonicalization drift).
+    Binds "this caller holds seat <neopId>'s private key" to this exact tool request."""
+    return f"{palace_id}\n{neop_id}\n{tool}".encode("utf-8")
+
+
 # ── default transport + audit (both injectable for tests) ─────────────────────
 def _urllib_transport(url: str, body: dict, headers: dict) -> tuple[int, dict]:
     data = json.dumps(body).encode("utf-8")
@@ -239,7 +247,11 @@ class PalaceShim:
         if self._signer is not None:
             headers["X-NEop-Signature"] = self._signer.sign(_canonical(body))
             headers["X-NEop-Pubkey"] = self._signer.public_key_b64
-            # NB: not verified by /mcp yet (Gate D deferred) — load-bearing once Layer 2 lands.
+            # Gate D: the canonicalization-safe identity claim the palace verifies (enforce.ts). Signed
+            # over (palaceId, neopId, tool) so the server reconstructs the exact bytes without JSON drift.
+            headers["X-NEop-Identity"] = self._signer.sign(
+                _identity_claim(self.palace_id, self.neop_id, name))
+            # X-NEop-Signature stays (body integrity, forward-looking); X-NEop-Identity is what Gate D checks.
         return body, headers
 
     def _permission(self) -> dict:
