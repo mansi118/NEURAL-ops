@@ -1,0 +1,89 @@
+{
+  "//": "PROPOSAL — least-privilege replacement for the agent running as mansi-synlex (AdministratorAccess).",
+  "//scope": "Derived from the AWS actions the agent ACTUALLY used this session. Review, then swap the box's",
+  "//scope2": "credential to a role/user with THIS policy. Deliberately excludes iam:* writes, *:*, and broad",
+  "//scope3": "terraform-apply perms (apply stays a gated, separately-elevated manual step). Add s3/cloudfront",
+  "//scope4": "(nc-web deploy) and the bedrock-dev bearer-key perms only if the agent must perform those too.",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EcsDeploys",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:Describe*",
+        "ecs:List*",
+        "ecs:RegisterTaskDefinition",
+        "ecs:UpdateService"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "//": "RegisterTaskDefinition can't be resource-scoped; UpdateService/Describe scoped to the cluster.",
+        "ArnLike": { "ecs:cluster": "arn:aws:ecs:ap-south-1:071126865245:cluster/neos-dogfood-cluster" }
+      }
+    },
+    {
+      "Sid": "PassOnlyTheTaskRoles",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": [
+        "arn:aws:iam::071126865245:role/neos-dogfood-task-role",
+        "arn:aws:iam::071126865245:role/neos-dogfood-*execution*"
+      ]
+    },
+    {
+      "Sid": "CodeBuildWrapperImage",
+      "Effect": "Allow",
+      "Action": ["codebuild:StartBuild", "codebuild:BatchGetBuilds", "codebuild:BatchGetProjects"],
+      "Resource": "arn:aws:codebuild:ap-south-1:071126865245:project/neos-wrapper-build"
+    },
+    {
+      "Sid": "EcrReadWrapperRepo",
+      "Effect": "Allow",
+      "Action": ["ecr:DescribeImages", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"],
+      "Resource": "arn:aws:ecr:ap-south-1:071126865245:repository/neos-dogfood-wrapper"
+    },
+    {
+      "Sid": "LogsRead",
+      "Effect": "Allow",
+      "Action": ["logs:GetLogEvents", "logs:FilterLogEvents", "logs:DescribeLogStreams", "logs:DescribeLogGroups"],
+      "Resource": "arn:aws:logs:ap-south-1:071126865245:log-group:/ecs/neos-dogfood-*"
+    },
+    {
+      "Sid": "SecretsReadDogfoodOnly",
+      "Effect": "Allow",
+      "Action": ["secretsmanager:GetSecretValue", "secretsmanager:ListSecrets"],
+      "Resource": "arn:aws:secretsmanager:ap-south-1:071126865245:secret:neos-dogfood/*"
+    },
+    {
+      "Sid": "BedrockReadAndConverse",
+      "//": "List = mansi-swap read. Converse/InvokeModel is normally via the bedrock-dev BEARER token, not",
+      "//2": "this identity — include InvokeModel only if the agent must invoke as itself (SigV4).",
+      "Effect": "Allow",
+      "Action": ["bedrock:ListInferenceProfiles", "bedrock:ListFoundationModels", "bedrock:GetInferenceProfile"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IamReadOnlyInspection",
+      "Effect": "Allow",
+      "Action": [
+        "iam:ListUsers", "iam:GetUser", "iam:ListAttachedUserPolicies", "iam:ListUserPolicies",
+        "iam:GetPolicy", "iam:GetPolicyVersion", "iam:ListGroupsForUser", "iam:ListServiceSpecificCredentials"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Ec2ReadState",
+      "Effect": "Allow",
+      "Action": ["ec2:DescribeInstances", "ec2:DescribeSecurityGroups", "ec2:DescribeSecurityGroupRules", "ec2:DescribeInstanceConnectEndpoints", "ssm:DescribeInstanceInformation", "sts:GetCallerIdentity"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "TempSshRuleOnMatrixBoxSgOnly",
+      "//": "The temporary SSH-ingress add/revoke for box access — SCOPED to the matrix-server-SG alone, the",
+      "//2": "one SG the agent touched. Not any SG; not the palace/spine SGs.",
+      "Effect": "Allow",
+      "Action": ["ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress"],
+      "Resource": "arn:aws:ec2:ap-south-1:071126865245:security-group/sg-0c7a71c257e07eb9a"
+    }
+  ]
+}
