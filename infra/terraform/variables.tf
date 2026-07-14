@@ -482,3 +482,20 @@ variable "fidelity_judge_model" {
   type        = string
   default     = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 }
+
+# ── Vault scheduler (Track 3 — the nightly promotion cadence; see vault-scheduler.tf) ─────────────────
+variable "enable_vault_scheduler" {
+  description = "Deploy the EventBridge-scheduled vault-promote Fargate task (held false; merging is inert)."
+  type        = bool
+  default     = false
+}
+variable "vault_schedule" {
+  description = "EventBridge Scheduler cron for the vault promotion pass. Default: nightly 04:00 UTC."
+  type        = string
+  default     = "cron(0 4 * * ? *)"
+}
+variable "vault_seats" {
+  description = "Comma-separated seat neopIds to run the vault promotion for (e.g. 'aria,recon')."
+  type        = string
+  default     = "aria,recon"
+}
