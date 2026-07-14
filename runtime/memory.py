@@ -217,3 +217,30 @@ def put_run_event(tenant, seat, event, kind="shadow_prediction", run_id=None, ts
     bound; ClickHouse holds the full corpus post-Track-2)."""
     resp = _post("palace_put_run_event", tenant, seat, run_event_params(event, kind, run_id, ts))
     return {"status": (resp or {}).get("status", "ok"), "trimmed": (resp or {}).get("trimmed", 0)}
+
+
+# --- vault do-not-re-promote markers (VL-5 durable half; runtime/vault.py) -----------------
+# Own-seat markers keyed by (palaceId, neopId, key = provenance.source_external_id/dedup_key). The
+# Vault-Promoter marks a key on promote and clears it on rollback (re-promote allowed). Three own-seat
+# tools (gated promote/recall/erase, palace #32); PURE marshalling, only _post touches the network.
+
+
+def is_promoted(tenant, seat, key):
+    """VL-5 do-not-re-promote check -> bool. True iff `key` was promoted for this seat and not cleared."""
+    resp = _post("palace_is_promoted", tenant, seat, {"key": key})
+    return bool((resp or {}).get("promoted"))
+
+
+def mark_promoted(tenant, seat, key, promoted_at=None):
+    """Mark `key` promoted (idempotent upsert) -> {status, key, upsert}."""
+    params = {"key": key}
+    if promoted_at is not None:
+        params["promotedAt"] = promoted_at
+    resp = _post("palace_mark_promoted", tenant, seat, params)
+    return {"status": (resp or {}).get("status", "ok"), "key": key}
+
+
+def clear_promoted(tenant, seat, key):
+    """VL-5 rollback: drop `key`'s marker so a corrected record can be re-promoted -> {status, cleared}."""
+    resp = _post("palace_clear_promoted", tenant, seat, {"key": key})
+    return {"status": (resp or {}).get("status", "ok"), "cleared": bool((resp or {}).get("cleared"))}
