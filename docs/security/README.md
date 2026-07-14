@@ -4,8 +4,15 @@ The agent operates the box as IAM user `mansi-synlex`, which currently carries
 **AdministratorAccess**. That is the longest-open, highest-priority security exposure: a live
 administrator credential on an agent-operated box, on a system about to run live NEops in real seats.
 
-`agent-least-privilege-policy.json` is a **proposal** for a scoped replacement, derived from the AWS
-actions the agent has **actually** used — not from assumption. Division of labour:
+Two files:
+- `agent-least-privilege-policy.json` — the **annotated** proposal (with `//` comment keys explaining each
+  statement). IAM does **not** accept `//` keys, so this is documentation, **not** directly attachable.
+- `agent-least-privilege-policy.attachable.json` — the **attachable** version (comments stripped).
+  Validated with IAM Access Analyzer (`validate-policy`, IDENTITY_POLICY): **0 findings** — no errors, no
+  security warnings. Attach THIS one.
+
+Both are a **proposal** for a scoped replacement, derived from the AWS actions the agent has **actually**
+used — not from assumption. Division of labour:
 
 - **Agent designs the scoped role** (this doc). It cannot and must not remove its own operating credential.
 - **You (ML) review + execute the IAM swap**: detach AdministratorAccess from `mansi-synlex` (or move
