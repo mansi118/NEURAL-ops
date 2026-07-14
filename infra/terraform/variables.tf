@@ -450,3 +450,35 @@ variable "synapse_db_instance_class" {
   type        = string
   default     = "db.t4g.micro"
 }
+
+# ── Fidelity scheduler (Track 3 — the nightly curator fold; see fidelity.tf) ──────────────────────────
+variable "enable_fidelity_scheduler" {
+  description = "Deploy the EventBridge-scheduled fidelity-fold Fargate task (held false; merging is inert)."
+  type        = bool
+  default     = false
+}
+variable "fidelity_schedule" {
+  description = "EventBridge Scheduler cron for the curator fold. Default: nightly 03:00 UTC."
+  type        = string
+  default     = "cron(0 3 * * ? *)"
+}
+variable "fidelity_seats" {
+  description = "Comma-separated seat neopIds to fold each run (e.g. 'aria,recon')."
+  type        = string
+  default     = "aria,recon"
+}
+variable "fidelity_palace_id" {
+  description = "The tenant/palaceId whose seats the fold runs for (the dogfood palace)."
+  type        = string
+  default     = ""
+}
+variable "fidelity_convex_url" {
+  description = "CONVEX_DEPLOYMENT_URL for the runner's palace reach (in-VPC Convex base, memory.py appends /mcp). Blank ⇒ falls back to convex_site_url."
+  type        = string
+  default     = ""
+}
+variable "fidelity_judge_model" {
+  description = "Bedrock inference-profile id for the LLM-as-judge (Claude Haiku). Empty ⇒ runtime.bedrock default."
+  type        = string
+  default     = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+}
